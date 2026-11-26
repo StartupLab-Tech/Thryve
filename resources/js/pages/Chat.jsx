@@ -54,6 +54,8 @@ export default function Chat() {
     const [loadingConv, setLoadingConv] = useState(false);
     const [usage, setUsage] = useState(null);
     const [agents, setAgents] = useState(null); // chatbots this person may use
+    const [models, setModels] = useState({ live: false, models: [] }); // approved models the chosen chatbot's server lists right now
+    const [modelPick, setModelPick] = useState(null); // the approved model picked for this conversation (null = the chatbot's own)
     const [picked, setPicked] = useState(null); // who the next new chat is with
     const [filter, setFilter] = useState(null); // assistant whose chats the list is limited to
     const [draft, setDraft] = useState('');
@@ -229,7 +231,7 @@ export default function Chat() {
         const restore = () => setDraft(t);
         setDraft(''); setPendingText(t);
         // Files are cleared only after a successful send, so a failed send keeps both the text and the files.
-        const ok = await run((signal, ack, onEvent) => postJson('/chat', 'POST', { message: t, conversation_id: current?.id, agent_id: current ? undefined : (picked ?? undefined), acknowledge_sensitive: ack || undefined, attachment_ids: ids }, signal, onEvent), restore);
+        const ok = await run((signal, ack, onEvent) => postJson('/chat', 'POST', { message: t, conversation_id: current?.id, agent_id: current ? undefined : (picked ?? undefined), acknowledge_sensitive: ack || undefined, attachment_ids: ids, ...(modelChoices.length ? { model_choice_id: pickedModel?.id ?? null } : {}) }, signal, onEvent), restore);
         if (ok) setFiles((l) => l.filter((f) => !ids.includes(f.id)));
     };
     const stop = async () => { const ctl = abort.current; if (!ctl?.streamId || stopping) return; ctl.stopRequested = true; setStopping(true); const fallback = setTimeout(() => { if (abort.current === ctl) ctl.abort(); }, 2500); try { await send('POST', `/chat/streams/${ctl.streamId}/stop`); } catch (e) { if (!ctl.signal.aborted && abort.current === ctl) { toast(errorText(e)); setStopping(false); } } finally { clearTimeout(fallback); } };
@@ -302,6 +304,21 @@ export default function Chat() {
     // A conversation whose assistant the person can no longer use stays readable but cannot continue.
     const locked = !!(current?.agent && agents && !agents.some((a) => a.id === current.agent.id));
     const blocked = exhausted || locked;
+    const modelChoices = models.live ? models.models : [];
+    const pickedModel = modelChoices.find((m) => m.id === modelPick) ?? null;
+    const agentId = agent?.id ?? null;
+    // The approved models this chatbot's AI server lists right now. If it cannot be read there is simply no model choice.
+    useEffect(() => {
+        if (!agentId) { setModels({ live: false, models: [] }); return undefined; }
+        let alive = true;
+        get(`/chat/models?agent_id=${agentId}`).then((m) => alive && setModels(m)).catch(() => alive && setModels({ live: false, models: [] }));
+        return () => { alive = false; };
+    }, [agentId]);
+    // An open conversation shows the model it uses; a new chat starts on the default model, if one is set.
+    useEffect(() => {
+        const want = current ? current.model_choice_id : (models.models.find((m) => m.is_default)?.id ?? null);
+        setModelPick(models.live && models.models.some((m) => m.id === want) ? want : null);
+    }, [current?.id, current?.model_choice_id, models]); // eslint-disable-line react-hooks/exhaustive-deps
     const showWelcome = !loadingConv && !current && !pendingText;
     const headerSwitch = several && !leftOpen; // with the chats panel hidden, the assistant chip becomes the switcher
     const dots = (id) => <i className={`dot ${hue(agents, id)}`} />;
@@ -371,6 +388,15 @@ export default function Chat() {
                                     : `You have used ${usage.percent}% of today's tokens (${fmt(usage.remaining)} left). They reset at midnight (Philippine time).`}
                                 {usage.includes_estimates ? ' Some counts are estimates.' : ''}
                             </span>
+                        </div>
+                    )}
+
+                    {modelChoices.length > 0 && (
+                        <div className="cw-modelbar">
+                            <span>Model</span>
+                            <Menu label={`Model: ${pickedModel ? pickedModel.label : 'Default'}. Choose another`} placement="above-end" triggerClass="cw-chip on" triggerContent={<>{pickedModel ? pickedModel.label : 'Default'}<Icon name="chev-down" /></>}
+                                items={[{ label: 'Default', onSelect: () => setModelPick(null) }, ...modelChoices.map((m) => ({ label: m.hint ? `${m.label}: ${m.hint}` : m.label, onSelect: () => setModelPick(m.id) }))]} />
+                            {pickedModel && !pickedModel.supports_images && <small>Cannot read images</small>}
                         </div>
                     )}
 

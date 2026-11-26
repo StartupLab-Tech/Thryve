@@ -207,12 +207,12 @@ final class GeneratedFiles
     }
 
     /** Persist all files atomically with the assistant message; clean written bytes on any failure. */
-    public function save(int $conversationId, int $userId, string $requestId, array $result): Message
+    public function save(int $conversationId, int $userId, string $requestId, array $result, ?string $model = null): Message
     {
         $keys = [];
         try {
-            return DB::transaction(function () use ($conversationId, $userId, $requestId, $result, &$keys) {
-                $message = Message::create(['conversation_id' => $conversationId, 'role' => 'assistant', 'content' => $result['message'], 'request_id' => $requestId]);
+            return DB::transaction(function () use ($conversationId, $userId, $requestId, $result, $model, &$keys) {
+                $message = Message::create(['conversation_id' => $conversationId, 'role' => 'assistant', 'content' => $result['message'], 'request_id' => $requestId, 'model' => $model]);
                 foreach ($result['files'] as $file) {
                     $key = 'generated/'.Str::random(40).'.bin';
                     $keys[] = $key;

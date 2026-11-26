@@ -33,9 +33,12 @@ class HermesClient
                 $headers[] = 'Authorization: Bearer '.$key;
             }
             // No X-Hermes-Session-Id: Hermes then ignores the history sent below and the agent forgets earlier turns.
-            $cancelled = app(StreamTransport::class)->read(rtrim($target['url'] ?? (string) config('services.hermes.url'), '/').'/v1/chat/completions', $headers, [
-                'model' => $target['model'] ?? config('services.hermes.model'), 'messages' => $messages, 'stream' => true, 'stream_options' => ['include_usage' => true],
-            ], $timeout, fn ($bytes) => $decoder->feed($bytes), $stop);
+            // A chosen model is sent with its provider: Hermes ignores a model name that comes without one.
+            $payload = ['model' => $target['model'] ?? config('services.hermes.model'), 'messages' => $messages, 'stream' => true, 'stream_options' => ['include_usage' => true]];
+            if (filled($target['provider'] ?? null)) {
+                $payload['provider'] = $target['provider'];
+            }
+            $cancelled = app(StreamTransport::class)->read(rtrim($target['url'] ?? (string) config('services.hermes.url'), '/').'/v1/chat/completions', $headers, $payload, $timeout, fn ($bytes) => $decoder->feed($bytes), $stop);
             if ($cancelled) {
                 $finish = 'cancelled';
             }
@@ -170,6 +173,28 @@ class HermesClient
     }
 
     /**
+     * The providers and models this Hermes profile can reach right now (GET /api/model/options with the agent's key).
+     * Spends no tokens. Null when it cannot be read; only the decoded list ever leaves, never an address or a message.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function modelOptions(string $url, ?string $key): ?array
+    {
+        try {
+            $request = Http::timeout(8)->connectTimeout(4)->withoutRedirecting()->acceptJson();
+            if ($key) {
+                $request = $request->withToken($key);
+            }
+            $response = $request->get(rtrim($url, '/').'/api/model/options');
+        } catch (\Throwable) {
+            return null;
+        }
+        $body = $response->status() === 200 ? $response->json() : null;
+
+        return is_array($body) && is_array($body['providers'] ?? null) ? $body : null;
+    }
+
+    /**
      * Send a conversation and wait for the full answer (non-streaming).
      *
      * Contract observed against a live Hermes gateway: success is a standard chat.completion with real `usage`.
@@ -199,11 +224,12 @@ class HermesClient
                 $request = $request->withToken($key);
             }
             // No X-Hermes-Session-Id: Hermes then ignores the history sent below and the agent forgets earlier turns.
-            $response = $request->post($url, [
-                'model' => $model,
-                'messages' => $messages,
-                'stream' => false,
-            ]);
+            $body = ['model' => $model, 'messages' => $messages, 'stream' => false];
+            // A chosen model is sent with its provider: Hermes ignores a model name that comes without one.
+            if (filled($target['provider'] ?? null)) {
+                $body['provider'] = $target['provider'];
+            }
+            $response = $request->post($url, $body);
         } catch (ConnectionException $e) {
             $text = strtolower($e->getMessage());
             // A read timeout means the request was sent and may still be running: it must not be repeated elsewhere.

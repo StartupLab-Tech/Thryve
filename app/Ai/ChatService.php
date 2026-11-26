@@ -6,6 +6,7 @@ use App\Models\Agent;
 use App\Models\Attachment;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\ModelChoice;
 use App\Models\User;
 use App\Support\BusinessDay;
 use App\Support\Settings;
@@ -21,7 +22,7 @@ class ChatService
     /** Roughly how much earlier conversation is sent along (characters, newest kept). Placeholder until D08. */
     public const CONTEXT_CHARS = 24000;
 
-    public function __construct(private AgentRunner $runner, private HermesClient $hermes, private Allowance $allowance, private AgentService $agents) {}
+    public function __construct(private AgentRunner $runner, private HermesClient $hermes, private Allowance $allowance, private AgentService $agents, private ModelCatalog $catalog) {}
 
     /** @return list<string> labels of sensitive data found, for the warn/block policy */
     public function sensitive(string $text): array
@@ -60,8 +61,14 @@ class ChatService
     {
         $agent = $this->agentFor($c);
         $target = null;
+        $choice = null;
         if ($agent) {
             $target = $this->agents->targetFor($agent) ?? throw new AgentUnavailable;
+            $choice = $this->activeChoice($c, $agent);
+            if ($choice) {
+                // The person's pick: the exact model and its provider (Hermes ignores a model name that comes without one).
+                $target = ['model' => $choice->model, 'provider' => $choice->provider] + $target;
+            }
         } elseif ($this->agents->any()) {
             throw new AgentUnavailable; // agents exist but this conversation has none and there is no default to fall back to
         }
@@ -108,7 +115,7 @@ class ChatService
         } catch (ProviderException $e) {
             $partial = $format ? '' : StreamText::visible($e->partialContent ?? $raw, true);
             if ($partial !== '') {
-                Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => $partial, 'request_id' => $requestId, 'completion_status' => 'failed']);
+                Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => $partial, 'request_id' => $requestId, 'model' => $choice?->model, 'completion_status' => 'failed']);
                 $c->update(['last_message_at' => now()]);
             }
             throw $e;
@@ -120,7 +127,7 @@ class ChatService
         }
         if (($out['result']['finish'] ?? null) === 'cancelled') {
             $partial = $format ? '' : StreamText::visible($out['result']['content'], true);
-            $reply = Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => $partial, 'request_id' => $requestId, 'completion_status' => 'cancelled']);
+            $reply = Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => $partial, 'request_id' => $requestId, 'model' => $choice?->model, 'completion_status' => 'cancelled']);
             $c->update(['last_message_at' => now()]);
 
             return $reply;
@@ -131,18 +138,32 @@ class ChatService
             if (($out['result']['finish'] ?? null) === 'length') {
                 throw new FileGenerationFailed;
             }
-            $reply = $generator->save($c->id, $user->id, $requestId, $generator->decode($out['result']['content'], $format));
+            $reply = $generator->save($c->id, $user->id, $requestId, $generator->decode($out['result']['content'], $format), $choice?->model);
         } else {
             $generator = app(GeneratedFiles::class);
             $found = $generator->extractAuto((string) $out['result']['content'], ($out['result']['finish'] ?? null) === 'length');
             $reply = $found
-                ? $generator->save($c->id, $user->id, $requestId, $found)
-                : Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => $out['result']['content'], 'request_id' => $requestId]);
+                ? $generator->save($c->id, $user->id, $requestId, $found, $choice?->model)
+                : Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => $out['result']['content'], 'request_id' => $requestId, 'model' => $choice?->model]);
         }
         $c->update(['last_message_at' => now()]);
         $this->allowance->notifyThresholds($user, BusinessDay::today());
 
         return $reply;
+    }
+
+    /** The model this conversation's person picked, if it is still approved and the chatbot's AI server still lists it. */
+    private function activeChoice(Conversation $c, ?Agent $agent): ?ModelChoice
+    {
+        if (! $agent || ! $c->model_choice_id) {
+            return null;
+        }
+        $choice = ModelChoice::enabled()->find($c->model_choice_id);
+        if (! $choice || $this->catalog->has($agent, $choice->provider, $choice->model) === false) {
+            return null;
+        }
+
+        return $choice;
     }
 
     /** The conversation's agent. A conversation from before agents existed adopts the default agent. */

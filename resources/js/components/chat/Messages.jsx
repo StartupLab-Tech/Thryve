@@ -37,6 +37,7 @@ export default function Messages({ messages, busy, liveText, stopping, pendingTe
                             ))}
                         </div>
                     )}
+                    {m.role === 'assistant' && m.model_label && <p className="m-note">Model: {m.model_label}</p>}
                     {['cancelled', 'failed'].includes(m.completion_status) && <p className="m-note">{m.completion_status === 'cancelled' ? 'Stopped' : 'Interrupted'} · {m.content ? 'partial answer saved' : 'no answer text received'}</p>}
 
                     {editing?.id !== m.id && (

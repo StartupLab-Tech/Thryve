@@ -6,6 +6,7 @@ use App\Ai\AgentUnavailable;
 use App\Ai\ChatService;
 use App\Ai\FileGenerationFailed;
 use App\Ai\GeneratedFiles;
+use App\Ai\ModelCatalog;
 use App\Ai\ProviderException;
 use App\Ai\TokenLimitReached;
 use App\Http\Middleware\PrepareChatRequest;
@@ -14,6 +15,7 @@ use App\Models\Agent;
 use App\Models\Attachment;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\ModelChoice;
 use App\Models\User;
 use App\Support\AgentAvatar;
 use App\Support\Impersonation;
@@ -27,7 +29,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /** Private conversations: every query is scoped to the signed-in person, and another person's id looks like "not found". */
 class ChatController extends Controller
 {
-    public function __construct(private ChatService $chat) {}
+    /** @var array<string, string>|null approved model name => label, read once per request */
+    private ?array $modelLabels = null;
+
+    public function __construct(private ChatService $chat, private ModelCatalog $models) {}
 
     private function mine(Request $request, int|string $id): Conversation
     {
@@ -39,6 +44,25 @@ class ChatController extends Controller
     {
         return Api::ok(Agent::availableTo($request->user())->orderByDesc('is_default')->orderBy('name')->get()
             ->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'description' => $a->description, 'is_default' => $a->is_default, 'avatar' => AgentAvatar::url($a->id)])->values());
+    }
+
+    /** The approved models this person may pick for a chatbot: enabled ones that the chatbot's AI server lists right now. */
+    public function models(Request $request): JsonResponse
+    {
+        $d = $request->validate(['agent_id' => ['required', 'integer']]);
+        $agent = Agent::availableTo($request->user())->find($d['agent_id']);
+        if (! $agent) {
+            return Api::error('agent_not_available', 'You do not have access to that chatbot.', 403);
+        }
+        $catalog = $this->models->for($agent);
+        if (! $catalog['live']) {
+            return Api::ok(['live' => false, 'models' => []]);
+        }
+        $listed = collect($catalog['models'])->map(fn ($m) => $m['provider'].'|'.$m['model'])->flip();
+
+        return Api::ok(['live' => true, 'models' => ModelChoice::enabled()->orderByDesc('is_default')->orderBy('label')->get()
+            ->filter(fn ($c) => $listed->has($c->provider.'|'.$c->model))
+            ->map(fn ($c) => ['id' => $c->id, 'label' => $c->label, 'hint' => $c->hint, 'model' => $c->model, 'supports_images' => $c->supports_images, 'is_default' => $c->is_default])->values()]);
     }
 
     public function index(Request $request): JsonResponse
@@ -73,10 +97,17 @@ class ChatController extends Controller
             'attachment_ids' => ['nullable', 'array'],
             'attachment_ids.*' => ['integer'],
             'output_format' => ['nullable', 'in:'.implode(',', GeneratedFiles::FORMATS)],
+            'model_choice_id' => ['nullable', 'integer'],
         ]);
         $text = trim($d['message']);
         if ($text === '') {
             return Api::error('validation_failed', 'Type a message first.', 422, ['message' => ['Type a message first.']]);
+        }
+        // A pick is optional. Sending the key with null goes back to the chatbot's own model; leaving it out keeps the conversation's pick.
+        $pickGiven = array_key_exists('model_choice_id', $d);
+        $choice = $pickGiven && $d['model_choice_id'] !== null ? ModelChoice::enabled()->find($d['model_choice_id']) : null;
+        if ($pickGiven && $d['model_choice_id'] !== null && ! $choice) {
+            return Api::error('model_not_available', 'That model is not available. Choose another one.', 422, ['model_choice_id' => ['That model is not available.']]);
         }
         $files = $this->files($request, $d['attachment_ids'] ?? []);
         if ($files instanceof JsonResponse) {
@@ -92,12 +123,22 @@ class ChatController extends Controller
             if ($denied = $this->accessProblem($user, $c)) {
                 return $denied;
             }
+            $effective = $pickGiven ? $choice : ($c->model_choice_id ? ModelChoice::enabled()->find($c->model_choice_id) : null);
+            if ($problem = $this->imageProblem($effective, $files, $c)) {
+                return $problem;
+            }
         } else {
             $agent = $this->pickAgent($user, $d['agent_id'] ?? null);
             if ($agent instanceof JsonResponse) {
                 return $agent;
             }
+            if ($problem = $this->imageProblem($choice, $files, null)) {
+                return $problem;
+            }
             $c = $this->chat->start($user, $agent, $text);
+        }
+        if ($pickGiven) {
+            $c->update(['model_choice_id' => $choice?->id]);
         }
         $this->chat->addUserMessage($c, $text, $files, $d['output_format'] ?? null);
 
@@ -205,6 +246,18 @@ class ChatController extends Controller
         }
 
         return Api::error('agent_not_available', 'This chatbot is not available to you right now. You can still read this conversation.', 403);
+    }
+
+    /** A model that cannot read images cannot answer in a conversation that has one. */
+    private function imageProblem(?ModelChoice $choice, Collection $files, ?Conversation $c): ?JsonResponse
+    {
+        if (! $choice || $choice->supports_images) {
+            return null;
+        }
+        $kinds = ['png', 'jpg', 'jpeg'];
+        $hasImage = $files->whereIn('kind', $kinds)->isNotEmpty() || ($c && Attachment::where('conversation_id', $c->id)->whereIn('kind', $kinds)->exists());
+
+        return $hasImage ? Api::error('model_no_images', "{$choice->label} cannot read images. Choose another model or remove the image.", 422) : null;
     }
 
     /** Files named in a send must be this person's own, unsent, and within the per-message limit. */
@@ -374,13 +427,14 @@ class ChatController extends Controller
 
     private function summary(Conversation $c): array
     {
-        return ['id' => $c->id, 'title' => $c->title, 'archived' => $c->archived_at !== null, 'last_message_at' => $c->last_message_at?->toIso8601String(),
+        return ['id' => $c->id, 'title' => $c->title, 'archived' => $c->archived_at !== null, 'last_message_at' => $c->last_message_at?->toIso8601String(), 'model_choice_id' => $c->model_choice_id,
             'agent' => $c->agent ? ['id' => $c->agent->id, 'name' => $c->agent->name, 'avatar' => AgentAvatar::url($c->agent->id)] : null];
     }
 
     private function message(Message $m): array
     {
         return ['id' => $m->id, 'role' => $m->role, 'content' => $m->content, 'rating' => $m->rating, 'completion_status' => $m->completion_status, 'created_at' => $m->created_at->toIso8601String(),
+            'model' => $m->model, 'model_label' => $m->model ? ($this->modelLabels ??= ModelChoice::pluck('label', 'model')->all())[$m->model] ?? $m->model : null,
             'attachments' => Attachment::where('message_id', $m->id)->orderBy('id')->get()->map(fn ($a) => AttachmentController::present($a))->all()];
     }
 }

@@ -15,6 +15,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\ImpersonationController;
 use App\Http\Controllers\InstallController;
+use App\Http\Controllers\ModelChoiceController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PolicyController;
 use App\Http\Controllers\PriceController;
@@ -75,6 +76,7 @@ Route::middleware(['web', 'installed'])->group(function () {
 
             // Own conversations (private to the signed-in person).
             Route::get('/chat/agents', [ChatController::class, 'agents']);
+            Route::get('/chat/models', [ChatController::class, 'models']); // the approved models this person may pick for a chatbot
             Route::get('/agents/{id}/avatar', [AgentAvatarController::class, 'show'])->whereNumber('id'); // the optional chatbot picture
             Route::get('/conversations', [ChatController::class, 'index']);
             Route::post('/chat', [ChatController::class, 'send'])->middleware(['throttle:chat-send', PrepareChatRequest::class]);
@@ -140,6 +142,7 @@ Route::middleware(['web', 'installed'])->group(function () {
                 Route::get('/agents', [AgentController::class, 'index']);
                 Route::get('/agents/{id}/checks', [AgentController::class, 'checks'])->whereNumber('id');
                 Route::get('/prices', [PriceController::class, 'index']);
+                Route::get('/model-choices', [ModelChoiceController::class, 'index']);
                 Route::get('/usage/summary', [UsageController::class, 'summary']);
                 Route::post('/users/{user}/token-grants', [UsageController::class, 'grant']);
 
@@ -176,6 +179,8 @@ Route::middleware(['web', 'installed'])->group(function () {
                 Route::post('/agents/{id}/revoke', [AgentController::class, 'revoke'])->whereNumber('id');
                 Route::post('/agents/{id}/inbound-key', [AgentController::class, 'inboundKey'])->whereNumber('id');
                 Route::post('/prices', [PriceController::class, 'store']);
+                Route::post('/model-choices', [ModelChoiceController::class, 'store']);
+                Route::patch('/model-choices/{id}', [ModelChoiceController::class, 'update'])->whereNumber('id');
 
                 Route::get('/system/health', [SystemController::class, 'health']);
 
