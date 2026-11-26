@@ -18,13 +18,6 @@ function Panel({ title, subtitle, children, className = '', action }) {
     return <section className={`sl-card rp-panel ${className}`}><div className="rp-panel-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>{children}</section>;
 }
 
-function Costs({ data }) {
-    return <Panel title="Recorded costs" subtitle="Historical prices · each currency kept separate">
-        <div className="rp-cost-list">{data.costs.length ? data.costs.map((c) => <div key={c.currency}><span>{c.currency}</span><strong>{new Intl.NumberFormat('en', { minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(Number(c.amount))}</strong><small>{number(c.priced_requests)} priced attempts · {number(c.estimated_requests)} based on estimated tokens</small></div>) : <p className="rp-muted">No priced attempts in this period.</p>}</div>
-        <p className="rp-note">{data.totals.unpriced ? `${number(data.totals.unpriced)} completed attempts have unknown costs and are excluded above.` : 'No unpriced completed attempts in this period.'} Pending reservations and background analysis are excluded.</p>
-    </Panel>;
-}
-
 function PeopleReport({ search, navigate, path }) {
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
@@ -96,7 +89,7 @@ function CoreReports({ view = 'overview' }) {
                 {attendance ? <Panel title="Attendance context" subtitle="Read the numbers with their source in mind"><div className="rp-context"><span className="rp-context-stat">{number(t.corrected_days)}<small>corrected daily records</small></span><p>Corrections are included in active time. Idle time comes from measured activity.</p><p>Today’s records may still change as sessions are reconciled. A missing record does not establish absence.</p><a href="/attendance/team" onClick={(e) => { e.preventDefault(); navigate('/attendance/team'); }}>Open team attendance →</a></div></Panel>
                     : <Panel title="Request outcomes" subtitle="All recorded attempts in this period"><Outcomes totals={t} /><p className="rp-note">Failed attempts can still consume tokens. Pending requests are reservations, not confirmed usage.</p></Panel>}
             </div>}
-            {view === 'overview' || view === 'usage' ? <div className="rp-bottom-grid"><Panel title="Assistant usage" subtitle="Top 8 assistants by recorded tokens"><AgentBars rows={data.agents} /></Panel><Costs data={data} /></div> : null}
+            {view === 'overview' || view === 'usage' ? <Panel title="Assistant usage" subtitle="Top 8 assistants by recorded tokens"><AgentBars rows={data.agents} /></Panel> : null}
             {view === 'people' && <PeopleReport search={search} navigate={navigate} path={path} />}
             {attendance && <AttendanceDetails search={search} navigate={navigate} path={path} />}
             <div className="rp-footnote"><Icon name="info" /><p>Department filters use current membership. Historical and inactive accounts are retained. Chat metrics exclude system analysis. Tasks and topics, and prompt quality, have their own tabs.</p></div>

@@ -1,7 +1,7 @@
 import { isAdmin, isSuperAdmin } from '../../lib/roles';
 
 // Rail items by role. Navigation depends on role for convenience only; the server enforces every permission.
-// Related pages live as tabs inside one item (Attendance: Mine/Team, People: People/Departments, Agents: Agents/Usage/Prices,
+// Related pages live as tabs inside one item (Attendance: Mine/Team, People: People/Departments, Agents: Agents/Usage/Models,
 // Settings: Settings/Health/Updates).
 export function railItems(user) {
     const items = [

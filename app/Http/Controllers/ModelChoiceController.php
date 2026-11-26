@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Ai\ModelCatalog;
-use App\Ai\PriceBook;
 use App\Http\Responses\Api;
 use App\Models\ModelChoice;
 use App\Support\Audit;
@@ -19,7 +18,7 @@ class ModelChoiceController extends Controller
 {
     private const NAME_RULE = '/^[A-Za-z0-9._:\\/-]+$/';
 
-    public function __construct(private ModelCatalog $catalog, private PriceBook $prices) {}
+    public function __construct(private ModelCatalog $catalog) {}
 
     public function index(): JsonResponse
     {
@@ -80,9 +79,6 @@ class ModelChoiceController extends Controller
         ]);
         $enabled = $d['is_enabled'] ?? $choice->is_enabled;
         $default = ($d['is_default'] ?? $choice->is_default) && $enabled;
-        if (($d['is_enabled'] ?? false) && ! $choice->is_enabled && ! $this->prices->lookup($choice->model)) {
-            return Api::error('price_missing', 'Add a price for this exact model name under Prices before enabling it, so its cost can be reported.', 422);
-        }
         if (($d['is_default'] ?? false) && ! $enabled) {
             return Api::error('default_needs_enabled', 'Only an enabled model can be the default.', 422);
         }
@@ -107,7 +103,7 @@ class ModelChoiceController extends Controller
         return [
             'id' => $c->id, 'provider' => $c->provider, 'model' => $c->model, 'label' => $c->label, 'hint' => $c->hint,
             'supports_images' => $c->supports_images, 'is_enabled' => $c->is_enabled, 'is_default' => $c->is_default,
-            'price_in_force' => $this->prices->lookup($c->model) !== null, 'available' => $available,
+            'available' => $available,
         ];
     }
 }

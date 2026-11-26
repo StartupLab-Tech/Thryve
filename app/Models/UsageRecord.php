@@ -13,7 +13,7 @@ class UsageRecord extends Model
 
     protected function casts(): array
     {
-        return ['is_estimate' => 'boolean', 'price_snapshot' => 'array', 'work_date' => 'date:Y-m-d', 'created_at' => 'datetime', 'cost' => 'decimal:6'];
+        return ['is_estimate' => 'boolean', 'work_date' => 'date:Y-m-d', 'created_at' => 'datetime'];
     }
 
     public function agent(): BelongsTo

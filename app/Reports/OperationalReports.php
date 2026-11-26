@@ -20,8 +20,7 @@ final class OperationalReports
     private const USAGE_TOTALS = "COUNT(*) AS requests, COALESCE(SUM(CASE WHEN status != 'pending' THEN input_tokens + output_tokens ELSE 0 END),0) AS tokens,
         COALESCE(SUM(CASE WHEN status != 'pending' AND is_estimate = 1 THEN input_tokens + output_tokens ELSE 0 END),0) AS estimated_tokens,
         COALESCE(SUM(status = 'pending'),0) AS pending, COALESCE(SUM(status = 'failed'),0) AS failed,
-        COALESCE(SUM(status = 'success'),0) AS successful, COALESCE(SUM(status = 'cancelled'),0) AS cancelled,
-        COALESCE(SUM(status != 'pending' AND (cost IS NULL OR currency IS NULL)),0) AS unpriced";
+        COALESCE(SUM(status = 'success'),0) AS successful, COALESCE(SUM(status = 'cancelled'),0) AS cancelled";
 
     private const ATTENDANCE_TOTALS = 'COALESCE(SUM(COALESCE(active_seconds_override,computed_active_seconds)),0) AS active_seconds,
         COALESCE(SUM(computed_idle_seconds),0) AS idle_seconds, COALESCE(SUM(is_corrected),0) AS corrected_days, COUNT(*) AS attendance_days';
@@ -42,16 +41,13 @@ final class OperationalReports
         foreach (CarbonPeriod::create($f->from, $f->to) as $date) {
             $day = $date->toDateString();
             $daily[] = ['day' => $day] + $this->numbers($dailyUsage[$day] ?? []) + $this->numbers($dailyTime[$day] ?? [])
-                + ['tokens' => 0, 'estimated_tokens' => 0, 'requests' => 0, 'failed' => 0, 'successful' => 0, 'pending' => 0, 'cancelled' => 0, 'unpriced' => 0, 'active_seconds' => 0, 'idle_seconds' => 0, 'corrected_days' => 0];
+                + ['tokens' => 0, 'estimated_tokens' => 0, 'requests' => 0, 'failed' => 0, 'successful' => 0, 'pending' => 0, 'cancelled' => 0, 'active_seconds' => 0, 'idle_seconds' => 0, 'corrected_days' => 0];
         }
-        $costs = $this->usage($f)->where('status', '!=', 'pending')->whereNotNull('cost')->whereNotNull('currency')->select('currency')
-            ->selectRaw('SUM(cost) AS amount, COUNT(*) AS priced_requests, SUM(is_estimate = 1) AS estimated_requests')->groupBy('currency')->orderBy('currency')->get()
-            ->map(fn ($r) => ['currency' => $r->currency, 'amount' => (string) $r->amount, 'priced_requests' => (int) $r->priced_requests, 'estimated_requests' => (int) $r->estimated_requests])->all();
         $agents = $this->usage($f)->where('status', '!=', 'pending')->select('agent_id')->selectRaw('SUM(input_tokens + output_tokens) AS tokens, COUNT(*) AS requests')
             ->groupBy('agent_id')->orderByDesc('tokens')->orderBy('agent_id')->limit(8)->get();
         $names = DB::table('agents')->whereIn('id', $agents->pluck('agent_id')->filter())->pluck('name', 'id');
 
-        return ['totals' => $totals, 'daily' => $daily, 'costs' => $costs,
+        return ['totals' => $totals, 'daily' => $daily,
             'agents' => $agents->map(fn ($r) => ['id' => $r->agent_id, 'name' => $names[$r->agent_id] ?? 'Legacy assistant', 'tokens' => (int) $r->tokens, 'requests' => (int) $r->requests])->all(),
             'analysis_enabled' => false];
     }

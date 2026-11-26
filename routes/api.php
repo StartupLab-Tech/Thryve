@@ -18,7 +18,6 @@ use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ModelChoiceController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PolicyController;
-use App\Http\Controllers\PriceController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SessionAdminController;
 use App\Http\Controllers\SettingsController;
@@ -141,7 +140,6 @@ Route::middleware(['web', 'installed'])->group(function () {
                 // Providers and usage: Admins monitor (read-only); only Super Admin changes anything (group below).
                 Route::get('/agents', [AgentController::class, 'index']);
                 Route::get('/agents/{id}/checks', [AgentController::class, 'checks'])->whereNumber('id');
-                Route::get('/prices', [PriceController::class, 'index']);
                 Route::get('/model-choices', [ModelChoiceController::class, 'index']);
                 Route::get('/usage/summary', [UsageController::class, 'summary']);
                 Route::post('/users/{user}/token-grants', [UsageController::class, 'grant']);
@@ -178,7 +176,6 @@ Route::middleware(['web', 'installed'])->group(function () {
                 Route::delete('/agents/{id}/rotate', [AgentController::class, 'cancelRotation'])->whereNumber('id');
                 Route::post('/agents/{id}/revoke', [AgentController::class, 'revoke'])->whereNumber('id');
                 Route::post('/agents/{id}/inbound-key', [AgentController::class, 'inboundKey'])->whereNumber('id');
-                Route::post('/prices', [PriceController::class, 'store']);
                 Route::post('/model-choices', [ModelChoiceController::class, 'store']);
                 Route::patch('/model-choices/{id}', [ModelChoiceController::class, 'update'])->whereNumber('id');
 

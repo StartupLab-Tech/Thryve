@@ -45,7 +45,7 @@ return [
         // Tokens (P04). Placeholders until decisions D05/D09: a person's limit comes from their account, else this default.
         'default_daily_token_limit' => ['default' => 50000, 'type' => 'int', 'rules' => ['integer', 'between:0,100000000'], 'label' => 'Default daily tokens per person', 'group' => 'tokens'],
         'system_daily_token_budget' => ['default' => null, 'type' => 'int', 'rules' => ['nullable', 'integer', 'between:0,1000000000'], 'label' => 'Daily tokens for background analysis (empty = no limit)', 'group' => 'tokens'],
-        'hermes_model_label' => ['default' => 'thryve-bot', 'rules' => ['string', 'min:1', 'max:100'], 'label' => 'Model name recorded in usage and used for pricing', 'group' => 'tokens'],
+        'hermes_model_label' => ['default' => 'thryve-bot', 'rules' => ['string', 'min:1', 'max:100'], 'label' => 'Model name recorded in usage', 'group' => 'tokens'],
         // Email (SMTP). The password is encrypted at rest and never shown again.
         'smtp_enabled' => ['default' => false, 'type' => 'bool', 'rules' => ['boolean'], 'label' => 'Send email', 'group' => 'email'],
         'smtp_host' => ['default' => null, 'rules' => ['nullable', 'string', 'max:255', 'regex:/^[A-Za-z0-9.\-]+$/'], 'label' => 'SMTP server', 'group' => 'email'],

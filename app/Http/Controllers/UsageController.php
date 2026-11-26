@@ -35,15 +35,15 @@ class UsageController extends Controller
         // Usage from before agents existed has no agent: it is reported together as "Earlier usage".
         $rows = DB::table('usage_records as u')->leftJoin('agents as a', 'a.id', '=', 'u.agent_id')
             ->whereBetween('u.work_date', [$from, $to])->where('u.status', '!=', 'pending')
-            ->groupBy('a.id', 'a.name', 'u.currency')
-            ->selectRaw("a.id, a.name, u.currency, COUNT(*) as requests, SUM(u.status = 'failed') as failures, SUM(u.is_estimate) as estimates,
-                SUM(u.input_tokens) as input_tokens, SUM(u.output_tokens) as output_tokens, SUM(u.cost) as cost, SUM(u.cost IS NULL) as unpriced, ROUND(AVG(u.latency_ms)) as avg_latency_ms")
+            ->groupBy('a.id', 'a.name')
+            ->selectRaw("a.id, a.name, COUNT(*) as requests, SUM(u.status = 'failed') as failures, SUM(u.is_estimate) as estimates,
+                SUM(u.input_tokens) as input_tokens, SUM(u.output_tokens) as output_tokens, ROUND(AVG(u.latency_ms)) as avg_latency_ms")
             ->orderByRaw('a.name IS NULL, a.name')->get();
 
         return Api::ok($rows->map(fn ($r) => [
-            'agent_id' => $r->id, 'name' => $r->name ?? 'Earlier usage (before agents)', 'currency' => $r->currency, 'requests' => (int) $r->requests, 'failures' => (int) $r->failures,
-            'estimated_requests' => (int) $r->estimates, 'unpriced_requests' => (int) $r->unpriced, 'input_tokens' => (int) $r->input_tokens, 'output_tokens' => (int) $r->output_tokens,
-            'cost' => $r->cost === null ? null : number_format((float) $r->cost, 6, '.', ''), 'avg_latency_ms' => $r->avg_latency_ms === null ? null : (int) $r->avg_latency_ms,
+            'agent_id' => $r->id, 'name' => $r->name ?? 'Earlier usage (before agents)', 'requests' => (int) $r->requests, 'failures' => (int) $r->failures,
+            'estimated_requests' => (int) $r->estimates, 'input_tokens' => (int) $r->input_tokens, 'output_tokens' => (int) $r->output_tokens,
+            'avg_latency_ms' => $r->avg_latency_ms === null ? null : (int) $r->avg_latency_ms,
         ])->values(), ['from' => $from, 'to' => $to, 'timezone' => BusinessDay::timezone()]);
     }
 

@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Ai\PriceBook;
 use App\Ai\StreamTransport;
 use App\Models\Agent;
 use App\Models\Attachment;
@@ -67,11 +66,6 @@ class ModelChoiceTest extends TestCase
         return ModelChoice::factory()->enabled()->create($attrs + ['model' => $model, 'label' => $model]);
     }
 
-    private function price(string $model = 'claude-opus-5-5', string $in = '15', string $out = '75'): void
-    {
-        app(PriceBook::class)->add($model, $in, $out, 'USD', now()->subDay(), null);
-    }
-
     private function lastChatRequestBody(): array
     {
         $body = null;
@@ -132,17 +126,14 @@ class ModelChoiceTest extends TestCase
         $this->assertSame(1, AuditEntry::where('action', 'model_choice.created')->count());
     }
 
-    public function test_a_model_cannot_be_enabled_until_it_has_a_price_and_zero_is_a_price(): void
+    public function test_a_model_can_be_turned_on_without_any_price(): void
     {
         $this->fakeHermes();
         $c = ModelChoice::factory()->create();
         $super = $this->cookieFor(Role::SUPER_ADMIN);
 
-        $this->device($super)->patchJson("/api/model-choices/{$c->id}", ['is_enabled' => true])->assertStatus(422)->assertJsonPath('error.code', 'price_missing');
-        $this->assertFalse($c->fresh()->is_enabled);
-
-        $this->price('claude-opus-5-5', '0', '0');
         $this->device($super)->patchJson("/api/model-choices/{$c->id}", ['is_enabled' => true])->assertOk()->assertJsonPath('data.is_enabled', true);
+        $this->assertTrue($c->fresh()->is_enabled);
         $this->assertSame(1, AuditEntry::where('action', 'model_choice.updated')->count());
     }
 
@@ -211,10 +202,9 @@ class ModelChoiceTest extends TestCase
 
     // ---- using a pick -----------------------------------------------------------------------------
 
-    public function test_a_pick_sends_the_exact_model_with_its_provider_and_is_recorded_and_priced(): void
+    public function test_a_pick_sends_the_exact_model_with_its_provider_and_is_recorded(): void
     {
         $this->fakeHermes();
-        $this->price();
         $choice = $this->choice();
         $cookie = $this->cookieFor(Role::EMPLOYEE);
 
@@ -227,7 +217,7 @@ class ModelChoiceTest extends TestCase
         $r->assertJsonPath('data.conversation.model_choice_id', $choice->id)->assertJsonPath('data.reply.model', 'claude-opus-5-5')->assertJsonPath('data.reply.model_label', 'claude-opus-5-5');
         $usage = UsageRecord::sole();
         $this->assertSame('claude-opus-5-5', $usage->model);
-        $this->assertSame('0.022500', $usage->cost); // 1000 in at 15 and 100 out at 75, per million
+        $this->assertSame(1100, $usage->input_tokens + $usage->output_tokens);
     }
 
     public function test_without_a_pick_the_request_is_exactly_what_it_was_before(): void

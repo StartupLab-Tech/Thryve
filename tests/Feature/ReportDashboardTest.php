@@ -34,7 +34,7 @@ class ReportDashboardTest extends TestCase
         UsageRecord::create($values + ['attempt_id' => $id.'#1', 'request_id' => $id, 'user_id' => $user->id,
             'provider_connection_id' => null, 'model' => 'sample', 'purpose' => 'chat', 'status' => 'success',
             'input_tokens' => 100, 'output_tokens' => 50, 'is_estimate' => false, 'work_date' => '2026-11-22',
-            'cost' => '0.02', 'currency' => 'USD', 'latency_ms' => 1000, 'created_at' => '2026-11-22 03:00:00']);
+            'latency_ms' => 1000, 'created_at' => '2026-11-22 03:00:00']);
     }
 
     public function test_all_report_endpoints_deny_guests_and_employees(): void
@@ -66,16 +66,16 @@ class ReportDashboardTest extends TestCase
         $two = Department::create(['name' => 'Finance']);
         $employee->departments()->attach([$one->id, $two->id]);
         $this->record($employee);
-        $this->record($employee, ['status' => 'failed', 'input_tokens' => 20, 'output_tokens' => 0, 'is_estimate' => true, 'cost' => null, 'currency' => null]);
+        $this->record($employee, ['status' => 'failed', 'input_tokens' => 20, 'output_tokens' => 0, 'is_estimate' => true]);
         $this->record($employee, ['status' => 'pending', 'input_tokens' => 900, 'output_tokens' => 0]);
         $this->record($employee, ['purpose' => 'analysis', 'input_tokens' => 500]);
-        $this->record($employee, ['currency' => 'PHP', 'cost' => 1]);
+        $this->record($employee);
         AttendanceDay::create(['user_id' => $employee->id, 'work_date' => '2026-11-22', 'computed_active_seconds' => 100, 'active_seconds_override' => 3600, 'computed_idle_seconds' => 300, 'is_corrected' => true]);
         $url = '/api/reports/overview?from=2026-11-22&to=2026-11-22&department_id='.$one->id;
         $r = $this->device($cookie)->getJson($url)->assertOk();
         $r->assertJsonPath('data.totals.tokens', 320)->assertJsonPath('data.totals.estimated_tokens', 20)->assertJsonPath('data.totals.pending', 1)
             ->assertJsonPath('data.totals.failed', 1)->assertJsonPath('data.totals.active_users', 1)->assertJsonPath('data.totals.active_seconds', 3600)
-            ->assertJsonPath('data.totals.idle_seconds', 300)->assertJsonPath('data.totals.unpriced', 1)->assertJsonCount(2, 'data.costs');
+            ->assertJsonPath('data.totals.idle_seconds', 300)->assertJsonMissingPath('data.costs')->assertJsonMissingPath('data.totals.unpriced');
         $r->assertJsonPath('data.daily.0.tokens', 320);
         $other = $this->makeUser();
         $this->device($cookie)->getJson($url.'&user_id='.$other->id)->assertOk()->assertJsonPath('data.totals.tokens', 0);
@@ -100,14 +100,14 @@ class ReportDashboardTest extends TestCase
         $this->assertDatabaseHas('audit_entries', ['action' => 'reports.people.viewed']);
     }
 
-    public function test_missing_attendance_is_distinguishable_from_recorded_zero_and_cost_estimates_are_labeled(): void
+    public function test_missing_attendance_is_distinguishable_from_recorded_zero_and_token_estimates_are_labeled(): void
     {
         $cookie = $this->cookieFor(Role::ADMIN);
         $user = $this->makeUser();
         $this->record($user, ['is_estimate' => true]);
         $query = '?user_id='.$user->id;
         $this->device($cookie)->getJson('/api/reports/people'.$query)->assertOk()->assertJsonPath('data.0.attendance_days', 0);
-        $this->device($cookie)->getJson('/api/reports/overview'.$query)->assertOk()->assertJsonPath('data.costs.0.estimated_requests', 1);
+        $this->device($cookie)->getJson('/api/reports/overview'.$query)->assertOk()->assertJsonPath('data.totals.estimated_tokens', 150);
         AttendanceDay::create(['user_id' => $user->id, 'work_date' => '2026-11-22']);
         $this->device($cookie)->getJson('/api/reports/people'.$query)->assertOk()->assertJsonPath('data.0.attendance_days', 1)->assertJsonPath('data.0.active_seconds', 0);
     }

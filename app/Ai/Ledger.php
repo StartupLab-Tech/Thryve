@@ -8,11 +8,11 @@ use App\Support\BusinessDay;
 
 /**
  * The usage ledger: one row per chargeable attempt. begin() reserves an estimate; finish() replaces it with the
- * provider's real numbers (or keeps the estimate, flagged, when real numbers are not available) and fixes the price.
+ * provider's real numbers (or keeps the estimate, flagged, when real numbers are not available).
  */
 class Ledger
 {
-    public function __construct(private Allowance $allowance, private PriceBook $prices) {}
+    public function __construct(private Allowance $allowance) {}
 
     /** Reserve tokens and open the record. @throws TokenLimitReached */
     public function begin(?User $user, ?int $agentId, string $requestId, int $attempt, string $model, string $purpose = 'chat', int $estimate = 0, ?int $conversationId = null, ?string $requestKind = null): UsageRecord
@@ -48,11 +48,9 @@ class Ledger
         $in = $keepEstimate ? $r->input_tokens : (int) $input;
         $out = $keepEstimate ? $r->output_tokens : (int) $output;
 
-        $cost = $this->prices->cost($r->model, $in, $out, $r->created_at);
         $r->update([
             'status' => $status, 'failure' => $failure, 'input_tokens' => $in, 'output_tokens' => $out,
             'is_estimate' => $keepEstimate ? true : $isEstimate, 'latency_ms' => $latencyMs,
-            'cost' => $cost['cost'] ?? null, 'currency' => $cost['currency'] ?? null, 'price_snapshot' => $cost['snapshot'] ?? null,
         ]);
 
         if ($r->purpose === 'chat') {

@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Ai\Ledger;
 use App\Models\Agent;
 use App\Models\AuditEntry;
-use App\Models\PriceEntry;
 use App\Models\Role;
 use App\Models\TokenGrant;
 use App\Models\User;
@@ -13,8 +12,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\SimulatesDevices;
 use Tests\TestCase;
 
-/** Prices, the usage summary, the employee's own allowance, extra tokens and the health row for agents. */
-class UsageAndPricesTest extends TestCase
+/** The usage summary, the employee's own allowance, extra tokens and the health row for agents. */
+class UsageTest extends TestCase
 {
     use RefreshDatabase, SimulatesDevices;
 
@@ -31,45 +30,24 @@ class UsageAndPricesTest extends TestCase
         return Agent::create(['name' => $name, 'slug' => strtolower($name), 'base_url' => 'https://x.example.com', 'profile' => strtolower($name)] + $attrs);
     }
 
-    public function test_admins_can_read_prices_and_usage_but_only_a_super_admin_can_add_a_price(): void
+    public function test_admins_can_read_the_usage_summary_but_employees_and_guests_cannot(): void
     {
-        $body = ['model' => 'm', 'input_per_million' => '1', 'output_per_million' => '2', 'currency' => 'usd'];
-        foreach (['/api/prices', '/api/usage/summary'] as $url) {
-            $this->device(null)->getJson($url)->assertStatus(401);
-            $this->device($this->cookieFor(Role::EMPLOYEE))->getJson($url)->assertStatus(403);
-            $this->device($this->cookieFor(Role::ADMIN))->getJson($url)->assertOk();
-        }
-        $this->device(null)->postJson('/api/prices', $body)->assertStatus(401);
-        $this->device($this->cookieFor(Role::EMPLOYEE))->postJson('/api/prices', $body)->assertStatus(403);
-        $this->device($this->cookieFor(Role::ADMIN))->postJson('/api/prices', $body)->assertStatus(403);
-        $this->device($this->cookieFor(Role::SUPER_ADMIN))->postJson('/api/prices', $body)->assertCreated();
+        $url = '/api/usage/summary';
+        $this->device(null)->getJson($url)->assertStatus(401);
+        $this->device($this->cookieFor(Role::EMPLOYEE))->getJson($url)->assertStatus(403);
+        $this->device($this->cookieFor(Role::ADMIN))->getJson($url)->assertOk();
     }
 
-    public function test_prices_are_added_never_edited_and_validated(): void
+    public function test_there_is_no_price_list_any_more(): void
     {
-        $c = $this->cookieFor(Role::SUPER_ADMIN);
-        $body = ['model' => 'thryve-bot', 'input_per_million' => '3', 'output_per_million' => '15.5', 'currency' => 'usd'];
+        $super = $this->cookieFor(Role::SUPER_ADMIN);
 
-        $r = $this->device($c)->postJson('/api/prices', $body)->assertCreated();
-        $this->assertSame(['3.0000', '15.5000', 'USD', true], [$r->json('data.input_per_million'), $r->json('data.output_per_million'), $r->json('data.currency'), $r->json('data.in_force')]);
-        $this->assertArrayNotHasKey('kind', $r->json('data'));
-
-        $this->device($c)->postJson('/api/prices', ['input_per_million' => '4'] + $body)->assertCreated();
-        $this->device($c)->postJson('/api/prices', ['effective_from' => now()->addDays(5)->toIso8601String(), 'input_per_million' => '9'] + $body)->assertCreated();
-        $rows = $this->device($this->cookieFor(Role::ADMIN))->getJson('/api/prices')->assertOk()->json('data');
-        $this->assertCount(3, $rows, 'the old prices are still there');
-        $this->assertContains(false, array_column($rows, 'in_force'), 'a future price is listed but not in force yet');
-
-        foreach ([['model' => 'bad model!'], ['input_per_million' => '-1'], ['output_per_million' => 'abc'], ['currency' => 'US'], ['currency' => '123'], ['input_per_million' => '99999999']] as $bad) {
-            $this->device($c)->postJson('/api/prices', $bad + $body)->assertStatus(422);
-        }
-        $this->assertSame(3, PriceEntry::count());
-        $this->assertSame(3, AuditEntry::where('action', 'price.added')->count());
+        $this->device($super)->getJson('/api/prices')->assertStatus(404);
+        $this->device($super)->postJson('/api/prices', ['model' => 'm', 'input_per_million' => '1', 'output_per_million' => '2', 'currency' => 'usd'])->assertStatus(404);
     }
 
-    public function test_the_usage_summary_groups_by_agent_and_flags_estimates_and_unpriced_requests(): void
+    public function test_the_usage_summary_groups_by_agent_and_flags_estimates(): void
     {
-        app(\App\Ai\PriceBook::class)->add('priced', '10.0000', '10.0000', 'USD', now()->subDay(), null);
         [$a, $b] = [$this->agent('Alpha'), $this->agent('Beta')];
         $u = User::factory()->create(['daily_token_limit' => 10_000_000]);
         $L = app(Ledger::class);
@@ -82,8 +60,10 @@ class UsageAndPricesTest extends TestCase
         $r = $this->device($this->cookieFor(Role::ADMIN))->getJson('/api/usage/summary')->assertOk();
 
         $rows = collect($r->json('data'))->keyBy('name');
-        $this->assertSame([2, 1, '10.000000', 200], [$rows['Alpha']['requests'], $rows['Alpha']['failures'], $rows['Alpha']['cost'], $rows['Alpha']['avg_latency_ms']]);
-        $this->assertSame([1, 1, 1, null, 1000], [$rows['Beta']['requests'], $rows['Beta']['estimated_requests'], $rows['Beta']['unpriced_requests'], $rows['Beta']['cost'], $rows['Beta']['input_tokens'] + $rows['Beta']['output_tokens']]);
+        $this->assertSame([2, 1, 200], [$rows['Alpha']['requests'], $rows['Alpha']['failures'], $rows['Alpha']['avg_latency_ms']]);
+        $this->assertSame([1, 1, 1000], [$rows['Beta']['requests'], $rows['Beta']['estimated_requests'], $rows['Beta']['input_tokens'] + $rows['Beta']['output_tokens']]);
+        $this->assertArrayNotHasKey('cost', $rows['Alpha']);
+        $this->assertArrayNotHasKey('unpriced_requests', $rows['Beta']);
         $this->assertSame(1, $rows['Earlier usage (before agents)']['requests']);
         $this->device($this->cookieFor(Role::ADMIN))->getJson('/api/usage/summary?from=2026-12-01&to=2026-11-01')->assertStatus(422);
     }

@@ -54,7 +54,7 @@ class ReportParityTest extends TestCase
         $id = Str::uuid()->toString();
         UsageRecord::create($extra + ['attempt_id' => $id.'#1', 'request_id' => $id, 'user_id' => $user->id, 'agent_id' => $agent->id, 'conversation_id' => $c->id,
             'model' => 'sample', 'purpose' => 'chat', 'status' => 'success', 'input_tokens' => 100, 'output_tokens' => 50, 'work_date' => '2026-11-22',
-            'is_estimate' => false, 'cost' => 0.02, 'currency' => 'USD', 'latency_ms' => 1000, 'created_at' => '2026-11-22 03:00:00']);
+            'is_estimate' => false, 'latency_ms' => 1000, 'created_at' => '2026-11-22 03:00:00']);
     }
 
     public function test_quality_uses_real_latency_ratings_and_explicitly_missing_telemetry(): void
@@ -62,7 +62,7 @@ class ReportParityTest extends TestCase
         [$cookie, $user, $agent, $c] = $this->fixture();
         $this->attempt($user, $agent, $c);
         $this->attempt($user, $agent, $c, ['latency_ms' => 3000]);
-        $this->attempt($user, $agent, $c, ['status' => 'failed', 'latency_ms' => 9000, 'cost' => null]);
+        $this->attempt($user, $agent, $c, ['status' => 'failed', 'latency_ms' => 9000]);
         Message::create(['conversation_id' => $c->id, 'role' => 'assistant', 'content' => 'A summary.', 'rating' => 'up', 'created_at' => '2026-11-22 03:01:00']);
         $r = $this->device($cookie)->getJson('/api/reports/quality?user_id='.$user->id)->assertOk();
         $r->assertJsonPath('data.latency.p50_ms', 2000)->assertJsonPath('data.latency.p95_ms', 2900)->assertJsonPath('data.latency.samples', 2)
@@ -70,19 +70,19 @@ class ReportParityTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_usage_details_preserve_currency_and_department_overlap(): void
+    public function test_usage_details_keep_department_overlap(): void
     {
         [$cookie, $user, $agent, $c] = $this->fixture();
         $a = Department::create(['name' => 'Operations']);
         $b = Department::create(['name' => 'Finance']);
         $user->departments()->attach([$a->id, $b->id]);
         $this->attempt($user, $agent, $c);
-        $this->attempt($user, $agent, $c, ['currency' => 'PHP', 'cost' => 1]);
-        $this->attempt($user, $agent, $c, ['purpose' => 'analysis', 'cost' => 99]);
+        $this->attempt($user, $agent, $c);
+        $this->attempt($user, $agent, $c, ['purpose' => 'analysis']);
         $r = $this->device($cookie)->getJson('/api/reports/usage?user_id='.$user->id)->assertOk();
-        $r->assertJsonPath('data.totals.input_tokens', 200)->assertJsonPath('data.totals.output_tokens', 100)->assertJsonCount(4, 'data.departments')->assertJsonCount(2, 'data.month');
+        $r->assertJsonPath('data.totals.input_tokens', 200)->assertJsonPath('data.totals.output_tokens', 100)->assertJsonCount(2, 'data.departments')->assertJsonMissingPath('data.month')->assertJsonMissingPath('data.spenders');
         $this->assertSame(1, (int) collect($r->json('data.buckets'))->sum('conversations'));
-        $this->device($cookie)->getJson('/api/reports/usage?department_id='.$a->id)->assertOk()->assertJsonCount(2, 'data.departments');
+        $this->device($cookie)->getJson('/api/reports/usage?department_id='.$a->id)->assertOk()->assertJsonCount(1, 'data.departments');
     }
 
     public function test_adoption_counts_messages_on_philippine_dates_and_current_access(): void

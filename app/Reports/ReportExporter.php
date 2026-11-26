@@ -18,7 +18,7 @@ final class ReportExporter
         $limit = min((int) config('reports.export_limit', 5000), $format === 'pdf' ? 500 : 5000);
         $inspection = app(InspectionReports::class);
         $rows = match ($report) {
-            'attempts' => ReportQueries::usage($f)->orderBy('id')->limit($limit + 1)->get(['id', 'user_id', 'agent_id', 'conversation_id', 'work_date', 'model', 'status', 'request_kind', 'input_tokens', 'output_tokens', 'is_estimate', 'cost', 'currency', 'latency_ms'])->map(fn ($r) => (array) $r)->all(),
+            'attempts' => ReportQueries::usage($f)->orderBy('id')->limit($limit + 1)->get(['id', 'user_id', 'agent_id', 'conversation_id', 'work_date', 'model', 'status', 'request_kind', 'input_tokens', 'output_tokens', 'is_estimate', 'latency_ms'])->map(fn ($r) => (array) $r)->all(),
             'conversations' => $inspection->conversations($f, $request)->limit($limit + 1)->get()->map(fn ($r) => (array) $r)->all(),
             'audit' => $inspection->audit($f, $request)->limit($limit + 1)->get()->map(fn ($r) => $inspection->presentAudit($r))->all(),
             'people' => $this->people($f, $limit),
@@ -30,7 +30,7 @@ final class ReportExporter
             throw ValidationException::withMessages(['report' => "This export exceeds {$limit} rows. Narrow the dates or select a person or department."]);
         }
         $rows = $this->inBusinessTime($rows);
-        $metadata = ['report' => $report, 'from' => $f->from, 'to' => $f->to, 'timezone' => BusinessDay::timezone(), 'times' => 'Time columns are marked ('.BusinessDay::label().') and shown in '.BusinessDay::timezone().' time (UTC+8).', 'generated_at' => CarbonImmutable::now(BusinessDay::timezone())->toIso8601String(), 'user_id' => $f->userId ?? 'All', 'department_id' => $f->departmentId ?? 'All', 'definition_version' => 1, 'membership' => 'Current membership; historical access and allowances are not reconstructed.', 'sources' => 'Recorded chat only; estimates flagged; missing costs and telemetry are not zero. Summary lists retain their stated top-list and sample bounds.'];
+        $metadata = ['report' => $report, 'from' => $f->from, 'to' => $f->to, 'timezone' => BusinessDay::timezone(), 'times' => 'Time columns are marked ('.BusinessDay::label().') and shown in '.BusinessDay::timezone().' time (UTC+8).', 'generated_at' => CarbonImmutable::now(BusinessDay::timezone())->toIso8601String(), 'user_id' => $f->userId ?? 'All', 'department_id' => $f->departmentId ?? 'All', 'definition_version' => 1, 'membership' => 'Current membership; historical access and allowances are not reconstructed.', 'sources' => 'Recorded chat only; estimates flagged; missing telemetry is not zero. Summary lists retain their stated top-list and sample bounds.'];
         $headers = array_values(array_unique(array_merge(...array_map('array_keys', $rows ?: [['result' => '']]))));
         $table = array_map(fn ($r) => array_map(fn ($h) => $this->cell($r[$h] ?? null), $headers), $rows);
         $stream = fopen('php://temp', 'w+');

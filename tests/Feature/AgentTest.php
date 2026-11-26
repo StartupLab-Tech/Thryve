@@ -360,7 +360,7 @@ class AgentTest extends TestCase
         $this->assertNotNull(Agent::find($id)->inbound_last_seen_at);
         $this->device($sa)->getJson('/api/agents')->assertJsonPath('data.0.inbound_fingerprint', AgentService::fingerprint($in));
 
-        foreach (['/api/conversations', '/api/agents', '/api/users', '/api/auth/me', '/api/prices', '/api/settings'] as $url) {
+        foreach (['/api/conversations', '/api/agents', '/api/users', '/api/auth/me', '/api/settings'] as $url) {
             $this->device(null)->withHeader('Authorization', "Bearer {$in}")->getJson($url)->assertStatus(401);
         }
         // The key it receives from us (outbound) is a different secret and does not work here.

@@ -25,7 +25,7 @@ import InstallWizard from './pages/InstallWizard';
 import ChangePassword from './pages/ChangePassword';
 import Login from './pages/Login';
 import People from './pages/People';
-import { Models, Prices, Usage } from './pages/AiAgents';
+import { Models, Usage } from './pages/AiAgents';
 import AgentsPanel from './pages/AgentsPanel';
 import PolicyAck from './pages/PolicyAck';
 import TokenGallery from './pages/TokenGallery';
@@ -43,7 +43,7 @@ const sections = (user) => {
     return {
         '/reports': admin && { title: 'Reports', preserveSearch: true, tabs: [
             { id: 'overview', path: '/reports', label: 'Overview', node: <Reports view="overview" /> },
-            { id: 'usage', path: '/reports/usage', label: 'Usage & cost', node: <Reports view="usage" /> },
+            { id: 'usage', path: '/reports/usage', label: 'Usage', node: <Reports view="usage" /> },
             { id: 'quality', path: '/reports/quality', label: 'Quality', node: <Reports view="quality" /> },
             { id: 'adoption', path: '/reports/adoption', label: 'Adoption', node: <Reports view="adoption" /> },
             { id: 'tasks', path: '/reports/tasks', label: 'Tasks & topics', node: <Reports view="tasks" /> },
@@ -59,7 +59,6 @@ const sections = (user) => {
         '/agents': admin && { title: 'AI agents', tabs: [
             { id: 'agents', path: '/agents', label: 'Agents', node: <><ViewOnly show={!sup} /><AgentsPanel canManage={sup} /></> },
             { id: 'usage', path: '/agents/usage', label: 'Usage', node: <Usage /> },
-            { id: 'prices', path: '/agents/prices', label: 'Prices', node: <><ViewOnly show={!sup} /><Prices canManage={sup} /></> },
             { id: 'models', path: '/agents/models', label: 'Models', node: <><ViewOnly show={!sup} /><Models canManage={sup} /></> },
         ] },
         '/settings': sup && { title: 'Settings', area: true, paths: SETTINGS_ITEMS.map((i) => i.path), tabs: [] },
@@ -68,7 +67,7 @@ const sections = (user) => {
 };
 
 function ViewOnly({ show }) {
-    return show ? <Alert tone="info" title="View only">Only a Super Admin can change agents, prices or models.</Alert> : null;
+    return show ? <Alert tone="info" title="View only">Only a Super Admin can change agents or models.</Alert> : null;
 }
 
 function Screen() {

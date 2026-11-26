@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Ai\Allowance;
 use App\Ai\Ledger;
-use App\Ai\PriceBook;
 use App\Ai\TokenLimitReached;
 use App\Models\Notification;
 use App\Models\Role;
@@ -25,8 +24,6 @@ class TokenAccountingTest extends TestCase
 
     private Allowance $allowance;
 
-    private PriceBook $prices;
-
     private int $n = 0;
 
     protected function setUp(): void
@@ -35,7 +32,6 @@ class TokenAccountingTest extends TestCase
         $this->seed(\Database\Seeders\RoleSeeder::class);
         $this->ledger = app(Ledger::class);
         $this->allowance = app(Allowance::class);
-        $this->prices = app(PriceBook::class);
     }
 
     private function user(array $attrs = [], string $role = Role::EMPLOYEE): User
@@ -62,55 +58,16 @@ class TokenAccountingTest extends TestCase
         $u->forceFill(['daily_token_limit' => $tokens])->save();
     }
 
-    // ---- prices and cost -----------------------------------------------------------------------
+    // ---- tokens only ---------------------------------------------------------------------------
 
-    public function test_cost_uses_exact_decimals_and_keeps_the_price_it_was_charged_at(): void
+    public function test_an_attempt_counts_tokens_and_records_no_money_cost(): void
     {
-        $this->prices->add('m1', '3.0000', '15.0000', 'usd', now()->subDay(), null);
-        $u = $this->user();
+        $r = $this->spend($this->user(), 100, 50, model: 'any-model');
 
-        $r = $this->spend($u, 1000, 500);
-
-        $this->assertSame('0.010500', (string) $r->cost);
-        $this->assertSame('USD', $r->currency);
-        $this->assertSame('3.0000', $r->price_snapshot['input_per_million']);
-        $this->assertSame('15.0000', $r->price_snapshot['output_per_million']);
-    }
-
-    public function test_changing_a_price_never_rewrites_past_costs(): void
-    {
-        $this->prices->add('m1', '3.0000', '15.0000', 'USD', now()->subDays(2), null);
-        $u = $this->user();
-        $this->setLimit($u, 10_000_000);
-        $old = $this->spend($u, 1_000_000, 0);
-
-        $this->prices->add('m1', '6.0000', '30.0000', 'USD', now()->subMinute(), null);
-        $new = $this->spend($u, 1_000_000, 0);
-
-        $this->assertSame('3.000000', (string) $old->fresh()->cost, 'the earlier request keeps its price');
-        $this->assertSame('6.000000', (string) $new->cost);
-        $this->assertSame(2, \App\Models\PriceEntry::count(), 'prices are only ever added');
-    }
-
-    public function test_the_price_is_chosen_by_date_and_by_model(): void
-    {
-        $this->prices->add('m1', '1.0000', '1.0000', 'USD', now()->subDays(10), null);
-        $this->prices->add('m1', '9.0000', '9.0000', 'USD', now()->addDays(10), null); // not in force yet
-
-        $this->assertSame('1.0000', (string) $this->prices->lookup('m1')->input_per_million);
-        $this->assertSame('9.0000', (string) $this->prices->lookup('m1', now()->addDays(11))->input_per_million);
-        $this->assertNull($this->prices->lookup('other-model'));
-        $this->assertNull($this->prices->lookup('m1', now()->subDays(30)), 'no price existed back then');
-    }
-
-    public function test_an_unpriced_model_still_counts_tokens_but_has_no_invented_cost(): void
-    {
-        $r = $this->spend($this->user(), 100, 50, model: 'mystery-model');
-
+        $this->assertSame(150, $r->input_tokens + $r->output_tokens);
         $this->assertNull($r->cost);
         $this->assertNull($r->currency);
         $this->assertNull($r->price_snapshot);
-        $this->assertSame(150, $r->input_tokens + $r->output_tokens);
     }
 
     // ---- recording attempts --------------------------------------------------------------------
