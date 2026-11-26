@@ -391,16 +391,7 @@ export default function Chat() {
                         </div>
                     )}
 
-                    {modelChoices.length > 0 && (
-                        <div className="cw-modelbar">
-                            <span>Model</span>
-                            <Menu label={`Model: ${pickedModel ? pickedModel.label : 'Default'}. Choose another`} placement="above-end" triggerClass="cw-chip on" triggerContent={<>{pickedModel ? pickedModel.label : 'Default'}<Icon name="chev-down" /></>}
-                                items={[{ label: 'Default', onSelect: () => setModelPick(null) }, ...modelChoices.map((m) => ({ label: m.hint ? `${m.label}: ${m.hint}` : m.label, onSelect: () => setModelPick(m.id) }))]} />
-                            {pickedModel && !pickedModel.supports_images && <small>Cannot read images</small>}
-                        </div>
-                    )}
-
-                    <div className="cw-composer">
+                    <div className={`cw-composer${modelChoices.length > 0 ? ' has-model' : ''}`}>
 
                         {files.length > 0 && (
                             <div className="chat-chips" aria-label="Attached files">
@@ -423,6 +414,13 @@ export default function Chat() {
                             <button type="button" className="cw-tgl" aria-label="Attach files" disabled={busy || blocked} onClick={() => pickerRef.current?.click()}><Icon name="clip" /></button>
                             {several && !current && agent && <span className="cw-chip on">{dots(agent.id)}{agent.name}</span>}
                             <span className="hint">Enter to send, Shift+Enter for a new line</span>
+                            {modelChoices.length > 0 && (
+                                <div className="cw-model">
+                                    <Menu label={`Model: ${pickedModel ? pickedModel.label : 'Default'}. Choose another`} placement="above-end" triggerClass="cw-modelbtn"
+                                        triggerContent={<><span className="mi"><Icon name="chip" /></span><span className="lbl">{pickedModel ? pickedModel.label : 'Default'}</span><span className="chev"><Icon name="chev-down" /></span></>}
+                                        items={[{ label: 'Default', onSelect: () => setModelPick(null) }, ...modelChoices.map((m) => ({ label: `${m.label}${m.hint ? `: ${m.hint}` : ''}${m.supports_images ? '' : ' · cannot read images'}`, onSelect: () => setModelPick(m.id) }))]} />
+                                </div>
+                            )}
                             {Speech && (
                                 <button type="button" className={`cw-tgl cw-mic ${listening ? 'on' : ''}`} aria-label={listening ? 'Stop voice typing' : 'Start voice typing'} aria-pressed={listening}
                                     disabled={busy || blocked} onClick={toggleListening}><Icon name="mic" /></button>
