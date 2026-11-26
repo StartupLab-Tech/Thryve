@@ -34,12 +34,17 @@ export default function Chat() {
     const [rightOv, setRightOv] = useState(false);
     const leftOpen = narrowLeft ? leftOv : leftSaved;
     const rightOpen = narrowRight ? rightOv : rightSaved;
-    const toggleLeft = () => (narrowLeft ? setLeftOv((v) => !v) : toggleLeftSaved());
-    const toggleRight = () => (narrowRight ? setRightOv((v) => !v) : toggleRightSaved());
+    // On narrow screens the two panels are overlays: opening one closes the other, so they never stack.
+    const toggleLeft = () => { if (narrowLeft) { setLeftOv((v) => !v); setRightOv(false); } else toggleLeftSaved(); };
+    const toggleRight = () => { if (narrowRight) { setRightOv((v) => !v); setLeftOv(false); } else toggleRightSaved(); };
     const leftBtn = useRef(null);
     // Phones: the chats panel is the home screen, so opening /chat with nothing selected starts on the list.
     useEffect(() => { if (phone && routeId === null) setLeftOv(true); }, [phone]); // eslint-disable-line react-hooks/exhaustive-deps
     const rightBtn = useRef(null);
+    const detailsClose = useRef(null);
+    const closeDetails = () => { setRightOv(false); rightBtn.current?.focus(); };
+    // The details overlay covers the header button that opened it, so focus moves to the panel's own close button.
+    useEffect(() => { if (narrowRight && rightOv) detailsClose.current?.focus({ preventScroll: true }); }, [narrowRight, rightOv]);
 
     // ---- data ----------------------------------------------------------------------------------------------------------
     const [list, setList] = useState(null);
@@ -406,7 +411,7 @@ export default function Chat() {
             </section>
 
             <aside id="cw-right" className="cw-right" aria-label="Details" inert={!rightOpen}>
-                <DetailsPanel usage={usage} agent={agent} agents={agents} messages={messages} />
+                <DetailsPanel usage={usage} agent={agent} agents={agents} messages={messages} onClose={narrowRight ? closeDetails : undefined} closeRef={detailsClose} />
             </aside>
 
             {((narrowLeft && leftOv) || (narrowRight && rightOv)) && <div className="cw-backdrop" onClick={closeOverlays} aria-hidden="true" />}

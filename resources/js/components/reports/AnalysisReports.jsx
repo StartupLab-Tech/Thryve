@@ -7,10 +7,11 @@ import ReportFilters from './ReportFilters';
 import { Panel, DataTable } from './ExpandedReports';
 import { TrendChart, number } from './ReportCharts';
 import { Coverage, DimensionBars, Recommendations, ShareBars, StateNotice, Stat } from './AnalysisParts';
+import { TopicList } from '../../pages/Topics';
 
 const INTRO = {
     prompts: ['Prompt quality', 'See how well your team writes prompts', 'Scores from 1 to 5 for clarity, context, specifics, refinement and verification, taken from conversations the Report agent has analyzed.'],
-    tasks: ['Tasks and topics', 'See what your team uses AI for', 'The kinds of work and topics found in analyzed conversations. Counts come from stored results, never from a live AI call.'],
+    tasks: ['Tasks and topics', 'See what your team uses AI for', 'The kinds of work and topics found in analyzed conversations. Counts come from stored results, never from a live AI call. The topic list the Report agent chooses from is managed at the bottom of this page.'],
 };
 
 // Prompt quality and Tasks & topics. Both read the same stored results; the AI is never called when this page opens.
@@ -25,11 +26,15 @@ export default function AnalysisReports({ view }) {
         api(`/reports/analysis${search || '?days=7'}`).then((r) => { if (active) setResult(r); }).catch((e) => { if (active) setError(e.message); });
         return () => { active = false; };
     }, [search, retry]);
+    // After a topic is added, edited or switched on or off, refresh the numbers quietly (no loading screen, no jump).
+    const reload = () => api(`/reports/analysis${search || '?days=7'}`).then(setResult).catch(() => {});
     const [label, headline, text] = INTRO[view];
     const d = result?.data;
     const days = result ? Math.round((new Date(result.meta.to) - new Date(result.meta.from)) / 864e5) + 1 : 7;
     return <div className="rp" aria-label={label}>
-        <div className="rp-intro"><div><span className="rp-label">{label.toUpperCase()}</span><h2>{headline}</h2><p>{text}</p></div></div>
+        <div className="rp-intro"><div><span className="rp-label">{label.toUpperCase()}</span><h2>{headline}</h2><p>{text}</p></div>
+            {view === 'tasks' && <Button size="sm" variant="soft" icon="layers" onClick={() => document.getElementById('topic-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Manage the topic list</Button>}
+        </div>
         <ReportFilters search={search} busy={!result && !error} onApply={(q) => navigate(`${path}?${q}`)} />
         {error && <Alert tone="danger" title="Could not load this report"><p>{error}</p><Button size="sm" onClick={() => setRetry((n) => n + 1)}>Try again</Button></Alert>}
         {!result && !error && <div className="sl-card" role="status"><Skeleton lines={8} /></div>}
@@ -41,6 +46,7 @@ export default function AnalysisReports({ view }) {
             {d.notes.map((n) => <p className="rp-note" key={n}>{n}</p>)}
             <p className="rp-note">Exports for these two reports are not available yet.</p>
         </>}
+        {view === 'tasks' && <TopicList onChanged={reload} />}
     </div>;
 }
 

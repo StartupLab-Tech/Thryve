@@ -27,6 +27,10 @@
 .cw-search{display:flex;align-items:center;gap:10px;border:1.5px solid var(--sl-line);background:var(--surface);border-radius:9999px;padding:9px 16px;color:var(--sl-muted);flex:none}
 .cw-search input{border:0;outline:0;background:transparent;font:inherit;font-size:14.5px;color:var(--sl-heading);width:100%;min-width:0}
 .cw-search:focus-within{border-color:var(--brand);box-shadow:0 0 0 4px var(--sl-accent-soft)}
+.cw-search input::-webkit-search-cancel-button{-webkit-appearance:none;display:none} /* the box has its own clear button */
+.cw-clear{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:none;color:var(--sl-muted);cursor:pointer;flex:none}
+.cw-clear:hover{background:var(--slate-100)}
+.cw-clear:focus-visible{outline:2px solid var(--blue-600);outline-offset:2px}
 .cw-filter{padding:0 6px;flex:none}
 .cw-chats{flex:1;min-height:0;overflow:auto;display:grid;gap:2px;align-content:start;margin:0 -6px;padding:0 0 16px}
 .cw-none{padding:8px 14px;font-size:14px;color:var(--sl-muted);margin:0}
@@ -164,9 +168,12 @@ button.cw-chip{cursor:pointer}
 .cw[data-lov=true] .cw-left .pin{width:100%}
 .cw[data-lov=true][data-left=open] .cw-left{transform:none}
 .cw[data-rov=true]{--cw-right:0px}
-.cw[data-rov=true] .cw-right{position:absolute;z-index:30;top:0;bottom:0;right:0;width:min(320px,92vw);transform:translateX(102%);transition:transform .3s cubic-bezier(.22,1,.36,1);box-shadow:var(--sh-lg);border-left-color:var(--sl-line)}
+.cw[data-rov=true] .cw-right{grid-column:1 / -1;position:absolute;z-index:30;top:0;bottom:0;right:0;width:min(320px,92vw);transform:translateX(102%);transition:transform .3s cubic-bezier(.22,1,.36,1);box-shadow:var(--sh-lg);border-left-color:var(--sl-line)}
 .cw[data-rov=true] .cw-right .in{width:100%}
 .cw[data-rov=true][data-right=open] .cw-right{transform:none}
+/* the details overlay covers the header, so it carries its own header with a close button, pinned while the panel scrolls */
+.cw-dhead{position:sticky;top:-28px;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-28px -24px 0;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--sl-line)}
+.cw-dhead h2{margin:0;font:800 18px var(--font-display);color:var(--sl-heading)}
 
 @media (max-width:767px){
   .cw-hd{padding:0 12px;gap:10px;min-height:64px}
@@ -183,7 +190,8 @@ button.cw-chip{cursor:pointer}
   .cw-welcome h2{font-size:26px}
   /* the chats panel is the phone home screen: full width, not a drawer */
   .cw[data-lov=true] .cw-left{width:100%;box-shadow:none}
-  .cw-backdrop{display:none}
+  /* the details panel is a full-width sheet on phones too, with its own close button */
+  .cw[data-rov=true] .cw-right{width:100%;box-shadow:none}
   .ic.flip{transform:scaleX(-1)}
 }
 /* Touch targets: 44 px or larger wherever a finger is the pointer. */
@@ -191,6 +199,7 @@ button.cw-chip{cursor:pointer}
   .cw-new{height:44px;min-height:44px;padding:0 18px 0 14px}
   .cw-sec .acts button{min-height:44px;min-width:44px;padding:0 6px}
   .cw-rowbtn{width:44px;height:44px}
+  .cw-clear{width:36px;height:36px}
   .cv-main{min-height:64px}
   .m-acts .sl-iconbtn{width:44px;height:44px}
   .chat-md .md-code figcaption button{min-height:44px;min-width:44px}

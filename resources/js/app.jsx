@@ -52,7 +52,6 @@ const sections = (user) => {
             { id: 'people', path: '/reports/people', label: 'People', node: <Reports view="people" /> },
             { id: 'conversations', path: '/reports/conversations', label: 'Conversations', node: <Reports view="conversations" /> },
             { id: 'audit', path: '/reports/audit', label: 'Audit', node: <Reports view="audit" /> },
-            { id: 'topics', path: '/reports/topics', label: 'Topics', node: <Reports view="topics" /> },
         ] },
         '/scores': { title: 'My prompt scores', tabs: [{ id: 'scores', path: '/scores', label: 'My prompt scores', node: <MyScores /> }] },
         '/attendance': { title: 'Attendance', tabs: [{ id: 'mine', path: '/attendance', label: 'Mine', node: <Attendance /> }, ...(admin ? [{ id: 'team', path: '/attendance/team', label: 'Team', node: <TeamAttendance /> }] : [])] },

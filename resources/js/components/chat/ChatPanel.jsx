@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import Icon from '../Icon';
 import { Skeleton } from '../ui/Feedback';
 import { Menu } from '../ui/Overlay';
@@ -9,7 +9,6 @@ import AgentAvatar from './AgentAvatar';
 // Choosing an assistant filters the chats and sets who the next new chat is with; the chip clears the filter.
 export default function ChatPanel({ agents, picked, filter, onPick, onClearFilter, list, query, onQuery, archived, onArchived, currentId, onOpen, onNew, onRename, onArchive, onDelete }) {
     useNow(30000); // keeps the "5 min" labels moving
-    const [searching, setSearching] = useState(false);
     const searchBox = useRef(null);
     const several = (agents?.length ?? 0) > 1; // a person with one assistant has nothing to choose, so the section is hidden
     const pickedAgent = agents?.find((a) => a.id === picked);
@@ -23,9 +22,9 @@ export default function ChatPanel({ agents, picked, filter, onPick, onClearFilte
     const rows = (list ?? []).filter((c) => !filter || c.agent?.id === filter);
     const filterAgent = agents?.find((a) => a.id === filter);
 
-    const toggleSearch = () => {
-        if (searching) { setSearching(false); onQuery(''); } else { setSearching(true); setTimeout(() => searchBox.current?.focus(), 0); }
-    };
+    // The search box is always shown. Clearing it (button or Esc) keeps the cursor in the box so the next search can start at once.
+    const clearSearch = () => { onQuery(''); searchBox.current?.focus(); };
+    const searchLabel = archived ? 'Search archived chats' : 'Search chats';
 
     return (
         <div className="pin">
@@ -54,17 +53,16 @@ export default function ChatPanel({ agents, picked, filter, onPick, onClearFilte
             <div className="cw-sec">
                 <span>{archived ? 'Archived chats' : 'Recent chats'}</span>
                 <span className="acts">
-                    <button type="button" onClick={toggleSearch} aria-expanded={searching}>Search</button>
                     <button type="button" onClick={() => onArchived(!archived)}>{archived ? 'Back to chats' : 'Archived'}</button>
                 </span>
             </div>
 
-            {searching && (
-                <label className="cw-search">
-                    <Icon name="search" /><span className="sr-only">Search chats</span>
-                    <input ref={searchBox} type="search" placeholder="Search chats" value={query} onChange={(e) => onQuery(e.target.value)} />
-                </label>
-            )}
+            <label className="cw-search">
+                <Icon name="search" /><span className="sr-only">{searchLabel}</span>
+                <input ref={searchBox} type="search" placeholder={searchLabel} value={query} onChange={(e) => onQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); clearSearch(); } }} />
+                {query && <button type="button" className="cw-clear" aria-label="Clear search" onClick={clearSearch}><Icon name="x" /></button>}
+            </label>
 
             {filterAgent && (
                 <div className="cw-filter">

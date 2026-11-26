@@ -26,6 +26,7 @@ export const LEGACY = {
     '/departments': '/people/departments',
     '/system': '/settings/health',
     '/providers': '/agents',
+    '/reports/topics': '/reports/tasks', // the topic list moved onto the Tasks & topics tab
 };
 
 export const isActive = (path, id) => path === id || path.startsWith(`${id}/`);

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../Icon';
 import { Button } from './Button';
@@ -44,33 +44,82 @@ export function popupPosition(rect, placement) {
     return { top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) };
 }
 
+// Where a menu goes so that it stays inside the window. `rect` is the button's box and `size` the menu's natural size.
+// It opens where `placement` says when it fits there; if not, on the side with more room (below or above the button);
+// if it fits on neither it is capped (`maxHeight`) and scrolls inside itself. Always at least `margin` px from every edge.
+export function fitPopup(rect, size, placement, view = { width: window.innerWidth, height: window.innerHeight }, margin = 8) {
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+    const maxLeft = Math.max(margin, view.width - size.width - margin);
+    const minCap = 96; // never squeeze a menu below a few rows
+
+    if (placement === 'right-end') {
+        const room = view.height - 2 * margin;
+        if (size.height > room) return { top: margin, left: clamp(rect.right + 10, margin, maxLeft), maxHeight: room };
+
+        return { top: clamp(rect.bottom - size.height, margin, view.height - size.height - margin), left: clamp(rect.right + 10, margin, maxLeft), maxHeight: null };
+    }
+
+    const gap = placement === 'above-end' ? 8 : 6;
+    const below = view.height - rect.bottom - gap - margin;
+    const above = rect.top - gap - margin;
+    const fitsBelow = size.height <= below;
+    const fitsAbove = size.height <= above;
+    const openAbove = placement === 'above-end' ? fitsAbove || (!fitsBelow && above > below) : !fitsBelow && (fitsAbove || above > below);
+    const left = clamp(rect.right - size.width, margin, maxLeft);
+
+    if (openAbove) {
+        const height = fitsAbove ? size.height : Math.max(above, minCap);
+
+        return { top: rect.top - gap - height, left, maxHeight: fitsAbove ? null : height };
+    }
+
+    return { top: rect.bottom + gap, left, maxHeight: fitsBelow ? null : Math.max(below, minCap) };
+}
+
 export function Menu({ label, icon = 'more', items, placement = 'below-end', triggerClass = 'sl-iconbtn', triggerContent = null }) {
     const [open, setOpen] = useState(false);
-    const [pos, setPos] = useState({ top: 0, right: 0 });
     const wrap = useRef(null);
     const pop = useRef(null);
     const trigger = useRef(null);
-    const toggle = () => {
-        if (!open) {
-            // Fixed positioning lets the popup escape scrolling table wrappers and clipped cards.
-            setPos(popupPosition(trigger.current.getBoundingClientRect(), placement));
-        }
-        setOpen(!open);
+    const toggle = () => setOpen(!open);
+
+    // Fixed positioning lets the popup escape scrolling table wrappers and clipped cards. It is placed from its measured size,
+    // before the browser paints, so it never shows in the wrong place.
+    const place = () => {
+        const el = pop.current;
+        const btn = trigger.current;
+        if (!el || !btn) return;
+        el.style.maxHeight = '';
+        const p = fitPopup(btn.getBoundingClientRect(), { width: el.offsetWidth, height: el.offsetHeight }, placement);
+        el.style.top = `${p.top}px`;
+        el.style.left = `${p.left}px`;
+        el.style.maxHeight = p.maxHeight ? `${p.maxHeight}px` : '';
+        el.style.visibility = 'visible';
     };
+    useLayoutEffect(() => { if (open) place(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
     useEffect(() => {
         if (!open) return;
-        pop.current?.querySelector('[role=menuitem]')?.focus();
+        pop.current?.querySelector('[role=menuitem]')?.focus({ preventScroll: true });
         const away = (e) => !wrap.current.contains(e.target) && !pop.current?.contains(e.target) && setOpen(false);
-        const close = () => setOpen(false);
+        // Scrolling the page moves the menu with its button (and closes it once the button is out of sight). Scrolling inside
+        // the menu itself, for a tall menu in a short window, leaves it alone.
+        const follow = (e) => {
+            if (pop.current?.contains(e.target)) return;
+            const r = trigger.current?.getBoundingClientRect();
+            if (!r || r.bottom < 0 || r.top > window.innerHeight) return setOpen(false);
+            place();
+        };
+        const resize = () => place();
         document.addEventListener('mousedown', away);
-        window.addEventListener('scroll', close, true);
-        window.addEventListener('resize', close);
+        window.addEventListener('scroll', follow, true);
+        window.addEventListener('resize', resize);
         return () => {
             document.removeEventListener('mousedown', away);
-            window.removeEventListener('scroll', close, true);
-            window.removeEventListener('resize', close);
+            window.removeEventListener('scroll', follow, true);
+            window.removeEventListener('resize', resize);
         };
-    }, [open]);
+    }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
     const onKey = (e) => {
         const els = [...(pop.current?.querySelectorAll('[role=menuitem]') ?? [])];
         const i = els.indexOf(document.activeElement);
@@ -85,7 +134,7 @@ export function Menu({ label, icon = 'more', items, placement = 'below-end', tri
             </button>
             {open && createPortal(
                 // Rendered on the page itself: the navigation bar blurs its background, which would otherwise make "fixed" mean "inside the bar".
-                <div ref={pop} className="sl-menu" role="menu" style={{ position: 'fixed', ...pos, zIndex: 40 }}>
+                <div ref={pop} className="sl-menu" role="menu" style={{ position: 'fixed', top: 0, left: 0, visibility: 'hidden', zIndex: 40 }}>
                     {items.map((it, i) => it === '-' ? <hr key={i} /> : (
                         <button key={it.label} type="button" role="menuitem" className={`it ${it.danger ? 'danger' : ''}`} disabled={it.disabled} title={it.hint} onClick={() => { setOpen(false); trigger.current.focus(); it.onSelect?.(); }}>
                             {it.icon && <Icon name={it.icon} />}{it.label}

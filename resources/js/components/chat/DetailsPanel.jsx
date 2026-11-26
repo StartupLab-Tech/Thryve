@@ -4,10 +4,18 @@ import { fmt, sizeText } from './chatUtil';
 import AgentAvatar from './AgentAvatar';
 
 // The right panel: today's tokens, the files in this chat, and a few words about the assistant. Hidden until opened.
-export default function DetailsPanel({ usage, agent, agents, messages }) {
+// On narrow screens it slides over the chat and covers the button that opened it, so `onClose` adds a pinned header with its
+// own close button (`closeRef` lets the page move focus to it). On wide screens the panel is a column and needs neither.
+export default function DetailsPanel({ usage, agent, agents, messages, onClose, closeRef }) {
     const files = messages.flatMap((m) => m.attachments ?? []);
     return (
         <div className="in">
+            {onClose && (
+                <div className="cw-dhead">
+                    <h2 id="cw-d-title">Details</h2>
+                    <button ref={closeRef} type="button" className="cw-tgl" aria-label="Close details" onClick={onClose}><Icon name="x" /></button>
+                </div>
+            )}
             <section aria-labelledby="cw-d-tokens">
                 <h2 id="cw-d-tokens" className="cw-h">Today's tokens</h2>
                 {!usage ? <Skeleton lines={2} /> : (

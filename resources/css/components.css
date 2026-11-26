@@ -89,7 +89,7 @@
 .sl-skel i{display:block;height:12px;border-radius:99px;background:linear-gradient(90deg,var(--slate-100),var(--slate-200),var(--slate-100));background-size:200% 100%;animation:slShim 1.4s infinite linear}
 @keyframes slShim{to{background-position:-200% 0}}
 /* Menus, modal, tooltip */
-.sl-menu{min-width:240px;background:var(--surface);border:1px solid var(--slate-200);border-radius:16px;box-shadow:var(--sh-md);padding:6px;display:grid;gap:2px}
+.sl-menu{min-width:240px;max-width:calc(100vw - 16px);overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--slate-200);border-radius:16px;box-shadow:var(--sh-md);padding:6px;display:grid;gap:2px}
 .sl-menu .it{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;font-size:14px;color:var(--slate-700);cursor:pointer;border:0;background:transparent;text-align:left;font-family:inherit;width:100%}
 .sl-menu .it:hover{background:var(--blue-50)}
 .sl-menu .it:disabled{opacity:.5;cursor:not-allowed;background:transparent}

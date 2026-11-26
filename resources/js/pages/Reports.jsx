@@ -8,7 +8,6 @@ import Icon from '../components/Icon';
 import ReportFilters from '../components/reports/ReportFilters';
 import ExpandedReports, { ExportReport, AttendanceDetails } from '../components/reports/ExpandedReports';
 import AnalysisReports from '../components/reports/AnalysisReports';
-import Topics from './Topics';
 import { TrendChart, Outcomes, AgentBars, number, hours } from '../components/reports/ReportCharts';
 
 function Metric({ label, value, note, icon }) {
@@ -48,7 +47,6 @@ function PeopleReport({ search, navigate, path }) {
 
 export default function Reports({ view = 'overview' }) {
     if (view === 'prompts' || view === 'tasks') return <AnalysisReports key={view} view={view} />;
-    if (view === 'topics') return <Topics />;
     return ['usage', 'quality', 'adoption', 'conversations', 'audit'].includes(view) ? <ExpandedReports key={view} view={view} /> : <CoreReports view={view} />;
 }
 
@@ -101,7 +99,7 @@ function CoreReports({ view = 'overview' }) {
             {view === 'overview' || view === 'usage' ? <div className="rp-bottom-grid"><Panel title="Assistant usage" subtitle="Top 8 assistants by recorded tokens"><AgentBars rows={data.agents} /></Panel><Costs data={data} /></div> : null}
             {view === 'people' && <PeopleReport search={search} navigate={navigate} path={path} />}
             {attendance && <AttendanceDetails search={search} navigate={navigate} path={path} />}
-            <div className="rp-footnote"><Icon name="info" /><p>Department filters use current membership. Historical and inactive accounts are retained. Chat metrics exclude system analysis. Tasks, topics and prompt quality have their own tabs.</p></div>
+            <div className="rp-footnote"><Icon name="info" /><p>Department filters use current membership. Historical and inactive accounts are retained. Chat metrics exclude system analysis. Tasks and topics, and prompt quality, have their own tabs.</p></div>
         </>}
     </div>;
 }
