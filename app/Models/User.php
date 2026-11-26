@@ -13,7 +13,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 
 // role_id and is_active are deliberately not mass-assignable: only the account service sets them.
 #[Fillable(['username', 'name', 'email', 'password'])]
-#[Hidden(['password', 'session_id'])]
+#[Hidden(['password', 'session_id', 'personalization'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -25,6 +25,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
             'must_change_password' => 'boolean',
+            'personalization' => 'array',
             'deactivated_at' => 'datetime',
             'last_login_at' => 'datetime',
         ];

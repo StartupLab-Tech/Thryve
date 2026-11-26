@@ -1,13 +1,85 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth';
-import { send } from '../lib/api';
+import { get, send } from '../lib/api';
 import { Card } from '../components/ui/Layout';
 import { Button } from '../components/ui/Button';
-import { TextField } from '../components/ui/Form';
-import { Alert, Pill, useToast } from '../components/ui/Feedback';
+import { TextField, TextareaField } from '../components/ui/Form';
+import { Alert, Pill, Skeleton, useToast } from '../components/ui/Feedback';
 import { ROLE_LABEL } from '../lib/roles';
 
 const EMPTY = { current_password: '', password: '', password_confirmation: '' };
+const NO_PREFERENCES = { call_me: '', role: '', style: '', notes: '' };
+
+/** The person's own preferences for the AI. Private: only they can read or change them. */
+function PersonalizationCard() {
+    const toast = useToast();
+    const [loaded, setLoaded] = useState(null);
+    const [form, setForm] = useState(NO_PREFERENCES);
+    const [errors, setErrors] = useState({});
+    const [formError, setFormError] = useState(null);
+    const [warning, setWarning] = useState(null);
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        get('/account/personalization')
+            .then((d) => { setLoaded(d); setForm(d.personalization); })
+            .catch((err) => setFormError(err.message));
+    }, []);
+
+    const used = Object.values(form).reduce((n, v) => n + v.length, 0);
+    const left = loaded ? loaded.limit - used : 0;
+    const set = (k) => (e) => { setForm({ ...form, [k]: e.target.value }); setWarning(null); };
+
+    const save = async (values, acknowledged = false, done = 'Preferences saved') => {
+        setBusy(true);
+        setErrors({});
+        setFormError(null);
+        setWarning(null);
+        try {
+            const d = await send('PUT', '/account/personalization', acknowledged ? { ...values, acknowledge_sensitive: true } : values);
+            setLoaded(d);
+            setForm(d.personalization);
+            toast(done);
+        } catch (err) {
+            if (err.code === 'sensitive_warning') setWarning(err.message);
+            else if (Object.keys(err.details ?? {}).length && !err.details.found) setErrors(Object.fromEntries(Object.entries(err.details).map(([k, v]) => [k, v[0]])));
+            else setFormError(err.message);
+        }
+        setBusy(false);
+    };
+
+    const submit = (e) => {
+        e.preventDefault();
+        save(form);
+    };
+
+    return (
+        <Card title="Personalization">
+            <p className="sl-help" style={{ marginTop: 0 }}>Tell the AI about you once and it keeps your answers in this style in every chat. Only you can see this. It never overrides company rules.</p>
+            {formError && <Alert tone="danger" title="Could not save">{formError}</Alert>}
+            {warning && (
+                <div className="grid gap-2">
+                    <Alert tone="warning" title="Check before saving">{warning}</Alert>
+                    <div><Button type="button" disabled={busy} onClick={() => save(form, true)}>Save anyway</Button></div>
+                </div>
+            )}
+            {!loaded && !formError && <Skeleton lines={4} />}
+            {loaded && (
+                <form onSubmit={submit} className="grid gap-4" noValidate>
+                    <TextField label="What should the AI call you?" value={form.call_me} maxLength={loaded.fields.call_me} onChange={set('call_me')} error={errors.call_me} />
+                    <TextareaField label="What do you do?" rows={2} value={form.role} maxLength={loaded.fields.role} onChange={set('role')} error={errors.role} />
+                    <TextareaField label="How should the AI answer?" rows={3} help="For example: short answers, bullet points, plain language." value={form.style} maxLength={loaded.fields.style} onChange={set('style')} error={errors.style} />
+                    <TextareaField label="Anything else it should know?" rows={4} value={form.notes} maxLength={loaded.fields.notes} onChange={set('notes')} error={errors.notes} />
+                    <p className="sl-help" style={{ margin: 0, color: left < 0 ? 'var(--color-danger)' : undefined }}>{errors.personalization ?? (left < 0 ? `${-left} ${left === -1 ? 'character' : 'characters'} over the ${loaded.limit} limit. Shorten your text to save.` : `${left} of ${loaded.limit} characters left. Do not include passwords or card numbers.`)}</p>
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="primary" type="submit" disabled={busy || left < 0}>{busy ? 'Saving...' : 'Save preferences'}</Button>
+                        <Button type="button" disabled={busy || used === 0} onClick={() => save(NO_PREFERENCES, false, 'Preferences cleared')}>Clear</Button>
+                    </div>
+                </form>
+            )}
+        </Card>
+    );
+}
 
 export default function Account() {
     const { user } = useAuth();
@@ -63,6 +135,7 @@ export default function Account() {
                         <div><Button variant="primary" type="submit" disabled={busy || !form.current_password || !form.password}>{busy ? 'Saving...' : 'Update password'}</Button></div>
                     </form>
                 </Card>
+                {!user.viewing_as_by && <PersonalizationCard />}
             </div>
         </>
     );

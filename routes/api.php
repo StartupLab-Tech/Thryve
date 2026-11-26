@@ -64,6 +64,10 @@ Route::middleware(['web', 'installed'])->group(function () {
         // The password comes first, then the policy: someone still on an admin-given password sees only the change screen.
         Route::middleware(['password-changed', 'policy'])->group(function () {
 
+            // Own AI preferences. Closed while a Super Admin is viewing as this person: nobody else reads or changes them.
+            Route::get('/account/personalization', [AccountController::class, 'showPersonalization'])->middleware('not-viewing-as');
+            Route::put('/account/personalization', [AccountController::class, 'updatePersonalization'])->middleware(['not-viewing-as', 'throttle:30,1']);
+
             // Own notifications (the bell). Scoped to the signed-in user in the controller.
             Route::get('/notifications', [NotificationController::class, 'index']);
             Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);

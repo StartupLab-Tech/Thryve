@@ -56,7 +56,7 @@ class ChatService
      * Answer the latest user message. Throws TokenLimitReached, AgentUnavailable or ProviderException; the user's
      * message stays saved so the person can retry.
      */
-    public function answer(User $user, Conversation $c, string $requestKind = 'send', ?callable $emit = null, ?callable $stop = null): Message
+    public function answer(User $user, Conversation $c, string $requestKind = 'send', ?callable $emit = null, ?callable $stop = null, bool $personalize = true): Message
     {
         $agent = $this->agentFor($c);
         $target = null;
@@ -69,7 +69,12 @@ class ChatService
         $context = $this->context($c);
         $format = $c->messages()->whereNull('superseded_at')->where('role', 'user')->latest('id')->value('output_format');
         // A format asked for by name (API only) is strict. Otherwise the agent decides, from what the person wrote, whether a file is wanted.
-        array_unshift($context, ['role' => 'system', 'content' => $format ? GeneratedFiles::instruction($format) : GeneratedFiles::autoInstruction()]);
+        $system = $format ? GeneratedFiles::instruction($format) : GeneratedFiles::autoInstruction();
+        // The person's own preferences come after the company rules. Not for strict file output, and not while a Super Admin views as them.
+        if ($personalize && ! $format && ($preferences = Personalization::promptFor($user)) !== '') {
+            $system .= "\n\n".$preferences;
+        }
+        array_unshift($context, ['role' => 'system', 'content' => $system]);
         $estimate = 0;
         foreach ($context as $message) {
             if (is_string($message['content'])) {

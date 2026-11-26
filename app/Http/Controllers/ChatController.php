@@ -260,6 +260,7 @@ class ChatController extends Controller
         $sessionId = $request->session()->getId();
         $userId = $request->user()->id;
         $impersonatorId = Impersonation::impersonatorId($request); // when set, this browser holds the Super Admin's session, not the employee's
+        $request->attributes->set('viewing_as', $impersonatorId !== null); // read later inside the stream, where the session may no longer be open
 
         return response()->stream(function () use ($request, $c, $kind, $id, $sessionId, $userId, $impersonatorId) {
             $old = ignore_user_abort(true);
@@ -349,7 +350,8 @@ class ChatController extends Controller
         }
         $base = ['conversation' => $this->summary($c)];
         try {
-            $reply = $this->chat->answer($request->user(), $c, $requestKind, $emit, $stop);
+            $viewingAs = (bool) $request->attributes->get('viewing_as', Impersonation::active($request));
+            $reply = $this->chat->answer($request->user(), $c, $requestKind, $emit, $stop, ! $viewingAs);
         } catch (FileGenerationFailed $e) {
             return Api::error('file_generation_failed', $e->getMessage().' Your message is saved; generation may have used tokens.', 502, $base);
         } catch (TokenLimitReached $e) {
