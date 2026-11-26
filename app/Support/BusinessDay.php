@@ -16,6 +16,26 @@ final class BusinessDay
         return config('thryve.business_timezone');
     }
 
+    /** Short name for the business timezone, shown next to times that are not UTC. */
+    public static function label(): string
+    {
+        return self::timezone() === 'Asia/Manila' ? 'PHT' : self::timezone();
+    }
+
+    /**
+     * An instant as business-time text (Y-m-d H:i:s), for exports and tables. Stored values are UTC: a value without a
+     * zone is read as UTC, one with an offset keeps it. Empty values stay empty.
+     */
+    public static function stamp(mixed $instant): ?string
+    {
+        if ($instant === null || $instant === '') {
+            return null;
+        }
+        $at = $instant instanceof CarbonInterface ? CarbonImmutable::instance($instant) : CarbonImmutable::parse((string) $instant, 'UTC');
+
+        return $at->setTimezone(self::timezone())->format('Y-m-d H:i:s');
+    }
+
     /** Business date (Y-m-d) an instant falls on. */
     public static function dateOf(CarbonInterface $instant): string
     {

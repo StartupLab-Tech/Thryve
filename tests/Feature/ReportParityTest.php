@@ -5,15 +5,18 @@ namespace Tests\Feature;
 use App\Models\Agent;
 use App\Models\Attachment;
 use App\Models\AttendanceDay;
+use App\Models\AuditEntry;
 use App\Models\Conversation;
 use App\Models\Department;
 use App\Models\Message;
 use App\Models\Role;
 use App\Models\UsageRecord;
 use App\Support\Audit;
+use App\Support\BusinessDay;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -189,7 +192,36 @@ class ReportParityTest extends TestCase
         $day = AttendanceDay::create(['user_id' => $user->id, 'work_date' => '2026-11-22', 'computed_active_seconds' => 100, 'active_seconds_override' => 250, 'computed_idle_seconds' => 30, 'computed_first_in_at' => '2026-11-22 01:00:00', 'first_in_override' => '2026-11-22 02:00:00', 'is_corrected' => true]);
         $this->device($cookie)->getJson('/api/reports/attendance?user_id='.$user->id)->assertOk()->assertJsonPath('data.0.active_seconds', 250)->assertJsonPath('data.0.idle_seconds', 30)->assertJsonPath('data.0.first_in_at', '2026-11-22T02:00:00+00:00');
         $csv = $this->device($cookie)->get('/api/reports/export?report=attendance&format=csv&user_id='.$user->id)->assertOk()->getContent();
-        $this->assertStringContainsString('2026-11-22T02:00:00+00:00', $csv);
+        $this->assertStringContainsString('first_in_at (PHT)', $csv);
+        $this->assertStringContainsString('2026-11-22 10:00:00', $csv); // 02:00 UTC is 10:00 Philippine time
+        $this->assertStringNotContainsString('2026-11-22T02:00:00+00:00', $csv);
         $this->assertSame($day->getRawOriginal('updated_at'), $day->fresh()->getRawOriginal('updated_at'));
+    }
+
+    public function test_exports_show_times_in_philippine_time_with_the_zone_in_the_heading(): void
+    {
+        [$cookie, $user] = $this->fixture();
+        $entry = AuditEntry::create(['actor_id' => $user->id, 'actor_username' => $user->username, 'action' => 'test.time_check', 'ip_address' => '127.0.0.1']);
+        DB::table('audit_entries')->where('id', $entry->id)->update(['created_at' => '2026-11-22 03:00:00']);
+
+        $audit = $this->device($cookie)->get('/api/reports/export?report=audit&format=csv')->assertOk()->getContent();
+        $line = collect(explode("\n", $audit))->first(fn ($l) => str_contains($l, 'test.time_check'));
+        $this->assertStringContainsString('at (PHT)', $audit);
+        $this->assertStringContainsString('2026-11-22 11:00:00', $line); // 03:00 UTC is 11:00 Philippine time
+        $this->assertStringNotContainsString('03:00:00', $line);
+        $this->assertStringContainsString('+08:00', $audit); // "generated_at" carries the Philippine offset
+
+        $conversations = $this->device($cookie)->get('/api/reports/export?report=conversations&format=csv')->assertOk()->getContent();
+        $this->assertStringContainsString('last_message_at (PHT)', $conversations);
+        $this->assertStringContainsString('2026-11-22 11:00:00', $conversations);
+    }
+
+    public function test_business_time_text_reads_stored_values_as_utc(): void
+    {
+        $this->assertSame('2026-11-22 11:00:00', BusinessDay::stamp('2026-11-22 03:00:00'));
+        $this->assertSame('2026-11-22 10:00:00', BusinessDay::stamp('2026-11-22T02:00:00+00:00'));
+        $this->assertSame('2026-11-23 00:30:00', BusinessDay::stamp('2026-11-22 16:30:00')); // crosses midnight
+        $this->assertNull(BusinessDay::stamp(null));
+        $this->assertSame('PHT', BusinessDay::label());
     }
 }

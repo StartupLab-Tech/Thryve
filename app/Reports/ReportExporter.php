@@ -2,6 +2,8 @@
 
 namespace App\Reports;
 
+use App\Support\BusinessDay;
+use Carbon\CarbonImmutable;
 use Dompdf\Dompdf;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +29,8 @@ final class ReportExporter
         if (count($rows) > $limit) {
             throw ValidationException::withMessages(['report' => "This export exceeds {$limit} rows. Narrow the dates or select a person or department."]);
         }
-        $metadata = ['report' => $report, 'from' => $f->from, 'to' => $f->to, 'timezone' => 'Asia/Manila', 'generated_at' => now()->toIso8601String(), 'user_id' => $f->userId ?? 'All', 'department_id' => $f->departmentId ?? 'All', 'definition_version' => 1, 'membership' => 'Current membership; historical access and allowances are not reconstructed.', 'sources' => 'Recorded chat only; estimates flagged; missing costs and telemetry are not zero. Summary lists retain their stated top-list and sample bounds.'];
+        $rows = $this->inBusinessTime($rows);
+        $metadata = ['report' => $report, 'from' => $f->from, 'to' => $f->to, 'timezone' => BusinessDay::timezone(), 'times' => 'Time columns are marked ('.BusinessDay::label().') and shown in '.BusinessDay::timezone().' time (UTC+8).', 'generated_at' => CarbonImmutable::now(BusinessDay::timezone())->toIso8601String(), 'user_id' => $f->userId ?? 'All', 'department_id' => $f->departmentId ?? 'All', 'definition_version' => 1, 'membership' => 'Current membership; historical access and allowances are not reconstructed.', 'sources' => 'Recorded chat only; estimates flagged; missing costs and telemetry are not zero. Summary lists retain their stated top-list and sample bounds.'];
         $headers = array_values(array_unique(array_merge(...array_map('array_keys', $rows ?: [['result' => '']]))));
         $table = array_map(fn ($r) => array_map(fn ($h) => $this->cell($r[$h] ?? null), $headers), $rows);
         $stream = fopen('php://temp', 'w+');
@@ -91,6 +94,31 @@ final class ReportExporter
         }
 
         return ['bytes' => $bytes, 'mime' => $mime, 'rows' => count($rows)];
+    }
+
+    /** Columns that hold a moment in time. Stored in UTC; exports show them in business time with the zone in the heading. */
+    private const TIME_COLUMNS = ['at', 'created_at', 'last_message_at', 'archived_at', 'deleted_at', 'first_in_at', 'last_out_at'];
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function inBusinessTime(array $rows): array
+    {
+        $label = BusinessDay::label();
+
+        return array_map(function (array $row) use ($label) {
+            $out = [];
+            foreach ($row as $key => $value) {
+                if (in_array($key, self::TIME_COLUMNS, true)) {
+                    $out["{$key} ({$label})"] = BusinessDay::stamp($value);
+                } else {
+                    $out[$key] = $value;
+                }
+            }
+
+            return $out;
+        }, $rows);
     }
 
     private function people(ReportFilters $f, int $limit): array

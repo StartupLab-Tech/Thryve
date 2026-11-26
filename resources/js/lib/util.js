@@ -19,10 +19,13 @@ export function errorText(err) {
     return details.length ? details.join(' ') : err?.message ?? 'Something went wrong.';
 }
 
-export const formatDateTime = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Never');
-
-// Attendance is official in Philippine time, whatever the viewer's own clock says.
+// Times are stored in UTC and shown in Philippine time (PHT, UTC+8, the same as Singapore), whatever the viewer's own clock says.
 const MANILA = 'Asia/Manila';
+// Raw database values have no zone ("2026-11-22 03:00:00"), which a browser would read as its own local time: mark them UTC.
+const asUtc = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(v) ? `${v.replace(' ', 'T')}Z` : v);
+export const formatManilaDateTime = (iso, empty = 'Never') => (iso ? new Date(asUtc(iso)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: MANILA }) : empty);
+export const formatDateTime = (iso) => formatManilaDateTime(iso);
+
 export const formatManilaTime = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: MANILA }) : '-');
 export const formatManilaDate = (ymd) => new Date(`${ymd}T00:00:00+08:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: MANILA });
 export const manilaToday = () => new Date().toLocaleDateString('en-CA', { timeZone: MANILA }); // YYYY-MM-DD

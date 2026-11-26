@@ -6,18 +6,20 @@ export const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
 export const firstName = (name = '') => name.trim().split(/\s+/)[0] || '';
 
 // "12 min", "2 h", "Yesterday", "Mon", "Nov 12": short and easy to scan in a list.
+// "Yesterday" and the weekday follow the Philippine calendar (PHT, UTC+8), whatever the viewer's own clock says.
+const MANILA = 'Asia/Manila';
+const manilaDay = (x) => x.toLocaleDateString('en-CA', { timeZone: MANILA }); // YYYY-MM-DD
 export function ago(iso) {
     if (!iso) return '';
     const d = new Date(iso);
     const seconds = Math.max(0, (Date.now() - d.getTime()) / 1000);
-    const now = new Date();
-    const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+    const days = Math.round((Date.parse(`${manilaDay(new Date())}T00:00:00Z`) - Date.parse(`${manilaDay(d)}T00:00:00Z`)) / 86400000);
     if (seconds < 60) return 'Now';
     if (seconds < 3600) return `${Math.max(1, Math.floor(seconds / 60))} min`;
     if (days <= 0) return `${Math.floor(seconds / 3600)} h`;
     if (days === 1) return 'Yesterday';
-    if (days < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    if (days < 7) return d.toLocaleDateString(undefined, { weekday: 'short', timeZone: MANILA });
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: MANILA });
 }
 
 // Each assistant keeps the same colour everywhere: its position in the list the server returns (default first).

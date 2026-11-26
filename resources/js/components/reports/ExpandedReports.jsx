@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { useRouter } from '../../lib/router';
+import { formatManilaDateTime } from '../../lib/util';
 import { Button } from '../ui/Button';
 import { Alert, Skeleton } from '../ui/Feedback';
 import { Table } from '../ui/Layout';
@@ -97,7 +98,7 @@ function Inspection({ view, data, meta, params, setParam, inspect }) {
             {view === 'audit' ? <><input className="sl-input" aria-label="Exact audit action" value={action} maxLength={100} onChange={(e) => setAction(e.target.value)} placeholder="Exact action (optional)" /><input className="sl-input" aria-label="Exact target type" value={targetType} maxLength={255} onChange={e => setTargetType(e.target.value)} placeholder="Target type (optional)" /><input className="sl-input" type="number" min="1" aria-label="Target ID" value={targetId} onChange={e => setTargetId(e.target.value)} placeholder="Target ID (optional)" /></> : <select className="sl-select" aria-label="Conversation state" value={params.get('state') || 'all'} onChange={(e) => setParam({ state: e.target.value, page: 1 })}>{['all', 'active', 'archived', 'deleted'].map((s) => <option key={s} value={s}>{s}</option>)}</select>}
             <Button type="submit" size="sm">Search</Button>
         </form>
-        {view === 'audit' ? <DataTable title="Audit activity" columns={[["at", "Time (UTC)"], ["actor", "Actor"], ["action", "Action"], ["target_type", "Target"], ["target_id", "ID"], ["metadata", "Details", (v) => <details><summary>View metadata</summary><pre className="rp-json">{JSON.stringify(v, null, 2)}</pre></details>]]} rows={data} /> : <DataTable title="Conversation list" columns={[["title", "Conversation", (v, r) => <button className="rp-text-button" onClick={() => inspect(r.id)}>{v}</button>], ["name", "Person"], ["agent", "Assistant"], ["last_message_at", "Last message (UTC)"], ["deleted_at", "State", (v, r) => v ? 'Deleted' : r.archived_at ? 'Archived' : 'Active']]} rows={data} />}
+        {view === 'audit' ? <DataTable title="Audit activity" columns={[["at", "Time (PHT)", (v) => formatManilaDateTime(v, '-')], ["actor", "Actor"], ["action", "Action"], ["target_type", "Target"], ["target_id", "ID"], ["metadata", "Details", (v) => <details><summary>View metadata</summary><pre className="rp-json">{JSON.stringify(v, null, 2)}</pre></details>]]} rows={data} /> : <DataTable title="Conversation list" columns={[["title", "Conversation", (v, r) => <button className="rp-text-button" onClick={() => inspect(r.id)}>{v}</button>], ["name", "Person"], ["agent", "Assistant"], ["last_message_at", "Last message (PHT)", (v) => formatManilaDateTime(v, '-')], ["deleted_at", "State", (v, r) => v ? 'Deleted' : r.archived_at ? 'Archived' : 'Active']]} rows={data} />}
         <Pager page={meta.page} last={meta.last_page} total={meta.total} onPage={(p) => setParam({ page: p })} />
     </Panel>;
 }
