@@ -17,6 +17,12 @@ import Messages from '../components/chat/Messages';
 import DetailsPanel from '../components/chat/DetailsPanel';
 import { SUGGESTIONS, extOf, firstName, fmt, hue, sizeText } from '../components/chat/chatUtil';
 import AgentAvatar from '../components/chat/AgentAvatar';
+import PluginActions from '../components/chat/PluginActions';
+import PluginLogo from '../components/PluginLogo';
+
+// Typing @ or / at the start of a word offers the plugins, like in ChatGPT.
+const MENTION = /(^|\s)([@/])([\w-]*)$/;
+const mentionAt = (value, caret) => { const m = value.slice(0, caret).match(MENTION); return m ? { start: caret - m[2].length - m[3].length, end: caret, query: m[3].toLowerCase() } : null; };
 
 export default function Chat() {
     const toast = useToast();
@@ -55,6 +61,10 @@ export default function Chat() {
     const [usage, setUsage] = useState(null);
     const [agents, setAgents] = useState(null); // chatbots this person may use
     const [models, setModels] = useState({ live: false, models: [] }); // approved models the chosen chatbot's server lists right now
+    const [plugins, setPlugins] = useState([]); // outside apps this person may switch on for this chatbot, e.g. GitHub
+    const [mention, setMention] = useState(null); // the @ or / being typed, while the plugin list is open
+    const [mentionIdx, setMentionIdx] = useState(0);
+    const [activePlugins, setActivePlugins] = useState([]); // the plugins switched on for the open or next conversation, by slug
     const [modelPick, setModelPick] = useState(null); // the approved model picked for this conversation (null = the chatbot's own)
     const [picked, setPicked] = useState(null); // who the next new chat is with
     const [filter, setFilter] = useState(null); // assistant whose chats the list is limited to
@@ -231,7 +241,7 @@ export default function Chat() {
         const restore = () => setDraft(t);
         setDraft(''); setPendingText(t);
         // Files are cleared only after a successful send, so a failed send keeps both the text and the files.
-        const ok = await run((signal, ack, onEvent) => postJson('/chat', 'POST', { message: t, conversation_id: current?.id, agent_id: current ? undefined : (picked ?? undefined), acknowledge_sensitive: ack || undefined, attachment_ids: ids, ...(modelChoices.length ? { model_choice_id: pickedModel?.id ?? null } : {}) }, signal, onEvent), restore);
+        const ok = await run((signal, ack, onEvent) => postJson('/chat', 'POST', { message: t, conversation_id: current?.id, agent_id: current ? undefined : (picked ?? undefined), acknowledge_sensitive: ack || undefined, attachment_ids: ids, ...(modelChoices.length ? { model_choice_id: pickedModel?.id ?? null } : {}), ...(plugins.length ? { plugins: activePlugins.filter((slug) => plugins.some((p) => p.slug === slug)) } : {}) }, signal, onEvent), restore);
         if (ok) setFiles((l) => l.filter((f) => !ids.includes(f.id)));
     };
     const stop = async () => { const ctl = abort.current; if (!ctl?.streamId || stopping) return; ctl.stopRequested = true; setStopping(true); const fallback = setTimeout(() => { if (abort.current === ctl) ctl.abort(); }, 2500); try { await send('POST', `/chat/streams/${ctl.streamId}/stop`); } catch (e) { if (!ctl.signal.aborted && abort.current === ctl) { toast(errorText(e)); setStopping(false); } } finally { clearTimeout(fallback); } };
@@ -240,7 +250,33 @@ export default function Chat() {
         const { id, text } = editing; setEditing(null); setPendingText(text);
         run((signal, ack, onEvent) => postJson(`/conversations/${current.id}/messages/${id}`, 'PATCH', { message: text, acknowledge_sensitive: ack || undefined }, signal, onEvent));
     };
-    const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } };
+    // Read after the text is on screen, when the caret is certain, so the list opens however the character got there.
+    useEffect(() => {
+        const el = box.current;
+        setMention(plugins.length && el ? mentionAt(draft, el.selectionStart ?? draft.length) : null);
+        setMentionIdx(0);
+    }, [draft, plugins]);
+    const shownPlugins = plugins.filter((p) => activePlugins.includes(p.slug));
+    const mentionList = mention && plugins.length ? plugins.filter((p) => !activePlugins.includes(p.slug) && p.name.toLowerCase().split(' ').some((word) => word.startsWith(mention.query))) : [];
+    const pickPlugin = (p) => {
+        // Read the text box as it is now: what was typed after the list opened must not be left behind.
+        const el = box.current;
+        const value = el ? el.value : draft;
+        const found = mentionAt(value, el?.selectionStart ?? value.length) ?? mention;
+        const at = found.start;
+        const next = value.slice(0, at) + value.slice(found.end);
+        setDraft(next); setActivePlugins((list) => (list.includes(p.slug) ? list : [...list, p.slug])); setMention(null);
+        // Put the caret back only if nothing was typed in the meantime.
+        requestAnimationFrame(() => { const el = box.current; if (el) { el.focus(); if (el.value === next) el.setSelectionRange(at, at); grow(el); } });
+    };
+    const onKey = (e) => {
+        if (mentionList.length > 0) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i + (e.key === 'ArrowDown' ? 1 : mentionList.length - 1)) % mentionList.length); return; }
+            if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) { e.preventDefault(); pickPlugin(mentionList[mentionIdx % mentionList.length]); return; }
+            if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
+        }
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
+    };
     // ---- speech to text (the browser's built-in recognition; the button is hidden where it is not available) ----------
     const Speech = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
     const rec = useRef(null);
@@ -314,6 +350,18 @@ export default function Chat() {
         get(`/chat/models?agent_id=${agentId}`).then((m) => alive && setModels(m)).catch(() => alive && setModels({ live: false, models: [] }));
         return () => { alive = false; };
     }, [agentId]);
+    useEffect(() => {
+        if (!agentId) { setPlugins([]); return undefined; }
+        let alive = true;
+        get(`/chat/plugins?agent_id=${agentId}`).then((r) => alive && setPlugins(r.plugins)).catch(() => alive && setPlugins([]));
+        return () => { alive = false; };
+    }, [agentId]);
+    useEffect(() => { setActivePlugins(current?.plugins ?? []); }, [current?.id, current?.plugins]);
+    const decided = (a, r) => {
+        setCurrent((c) => c && { ...c, pending_actions: (c.pending_actions ?? []).filter((x) => x.id !== a.id), messages: r.message ? [...c.messages, r.message] : c.messages });
+        toast(r.action.status === 'done' ? `Change made on ${a.app ?? 'the app'}` : r.action.status === 'denied' ? 'Change denied' : `${a.app ?? 'The app'} could not make the change`);
+    };
+    const decideFailed = (err, a) => { toast(err.message); if (err.status === 409 || err.status === 404) setCurrent((c) => c && { ...c, pending_actions: (c.pending_actions ?? []).filter((x) => x.id !== a.id) }); };
     // An open conversation shows the model it uses; a new chat starts on the default model, if one is set.
     useEffect(() => {
         const want = current ? current.model_choice_id : (models.models.find((m) => m.is_default)?.id ?? null);
@@ -391,10 +439,28 @@ export default function Chat() {
                         </div>
                     )}
 
+                    <PluginActions actions={current?.pending_actions} onDecided={decided} onError={decideFailed} />
+
                     <div className={`cw-composer${modelChoices.length > 0 ? ' has-model' : ''}`}>
 
-                        {files.length > 0 && (
-                            <div className="chat-chips" aria-label="Attached files">
+                        {mentionList.length > 0 && (
+                            <ul id="cw-mention" className="cw-mention" role="listbox" aria-label="Plugins">
+                                {mentionList.map((p, i) => (
+                                    <li key={p.slug} role="option" aria-selected={i === mentionIdx % mentionList.length} className={i === mentionIdx % mentionList.length ? 'on' : ''}
+                                        onMouseDown={(e) => { e.preventDefault(); pickPlugin(p); }}>
+                                        <PluginLogo slug={p.slug} name={p.name} /><span><strong>{p.name}</strong><small>Use {p.name} in this chat</small></span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {(files.length > 0 || shownPlugins.length > 0) && (
+                            <div className="chat-chips" aria-label="Attached files and plugins">
+                                {shownPlugins.map((p) => (
+                                    <span key={p.slug} className="chat-chip plug">
+                                        <PluginLogo slug={p.slug} name={p.name} /><span className="n">{p.name}</span>
+                                        <button type="button" className="x" aria-label={`Stop using ${p.name} in this chat`} disabled={busy} onClick={() => setActivePlugins((list) => list.filter((slug) => slug !== p.slug))}><Icon name="x" /></button>
+                                    </span>
+                                ))}
                                 {files.map((f) => (
                                     <span key={f.key} className={`chat-chip ${f.status === 'error' ? 'bad' : ''}`}>
                                         <Icon name="file" /><span className="n">{f.name}</span>{f.size ? <span className="s">{sizeText(f.size)}</span> : null}
@@ -408,17 +474,20 @@ export default function Chat() {
                         )}
                         <textarea ref={box} rows={1} aria-label="Message" value={draft} disabled={blocked} maxLength={20000}
                             placeholder={locked ? 'You can no longer use this assistant' : exhausted ? 'Your tokens for today are used up' : phone ? 'Message…' : agent ? `Message ${agent.name}…` : 'Message the assistant…'}
-                            onChange={(e) => { setDraft(e.target.value); grow(e.target); }} onKeyDown={onKey} />
+                            onChange={(e) => { setDraft(e.target.value); grow(e.target); }} onKeyDown={onKey}
+                            aria-autocomplete={plugins.length ? 'list' : undefined} aria-controls={mentionList.length ? 'cw-mention' : undefined} />
                         <div className="tools">
                             <input ref={pickerRef} type="file" multiple hidden accept={limits.types.map((t) => `.${t}`).join(',')} onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
                             <button type="button" className="cw-tgl" aria-label="Attach files" disabled={busy || blocked} onClick={() => pickerRef.current?.click()}><Icon name="clip" /></button>
                             {several && !current && agent && <span className="cw-chip on">{dots(agent.id)}{agent.name}</span>}
-                            <span className="hint">Enter to send, Shift+Enter for a new line</span>
+                            <span className="hint">Enter to send, Shift+Enter for a new line{plugins.length > 0 ? '. Type @ or / for plugins' : ''}</span>
                             {modelChoices.length > 0 && (
                                 <div className="cw-model">
-                                    <Menu label={`Model: ${pickedModel ? pickedModel.label : 'Default'}. Choose another`} placement="above-end" triggerClass="cw-modelbtn"
-                                        triggerContent={<><span className="mi"><Icon name="chip" /></span><span className="lbl">{pickedModel ? pickedModel.label : 'Default'}</span><span className="chev"><Icon name="chev-down" /></span></>}
-                                        items={[{ label: 'Default', onSelect: () => setModelPick(null) }, ...modelChoices.map((m) => ({ label: `${m.label}${m.hint ? `: ${m.hint}` : ''}${m.supports_images ? '' : ' · cannot read images'}`, onSelect: () => setModelPick(m.id) }))]} />
+                                    {modelChoices.length > 0 && (
+                                        <Menu label={`Model: ${pickedModel ? pickedModel.label : 'Default'}. Choose another`} placement="above-end" triggerClass="cw-modelbtn"
+                                            triggerContent={<><span className="mi"><Icon name="chip" /></span><span className="lbl">{pickedModel ? pickedModel.label : 'Default'}</span><span className="chev"><Icon name="chev-down" /></span></>}
+                                            items={[{ label: 'Default', onSelect: () => setModelPick(null) }, ...modelChoices.map((m) => ({ label: `${m.label}${m.hint ? `: ${m.hint}` : ''}${m.supports_images ? '' : ' · cannot read images'}`, onSelect: () => setModelPick(m.id) }))]} />
+                                    )}
                                 </div>
                             )}
                             {Speech && (

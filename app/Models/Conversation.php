@@ -11,7 +11,7 @@ class Conversation extends Model
 
     protected function casts(): array
     {
-        return ['archived_at' => 'datetime', 'deleted_at' => 'datetime', 'last_message_at' => 'datetime'];
+        return ['archived_at' => 'datetime', 'deleted_at' => 'datetime', 'last_message_at' => 'datetime', 'plugins' => 'array'];
     }
 
     public function agent(): \Illuminate\Database\Eloquent\Relations\BelongsTo

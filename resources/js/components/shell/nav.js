@@ -8,6 +8,7 @@ export function railItems(user) {
         { id: '/chat', label: 'Chat', icon: 'chat' },
         { id: '/attendance', label: 'Attendance', icon: 'clock' },
         { id: '/scores', label: 'Scores', icon: 'star', title: 'My prompt scores' },
+        { id: '/plugins', label: 'Plugins', icon: 'globe', title: 'Plugins' },
     ];
     if (isAdmin(user)) {
         items.push(
@@ -22,6 +23,7 @@ export function railItems(user) {
 
 // Old bookmarks: each old URL now opens the matching tab.
 export const LEGACY = {
+    '/account/plugins': '/plugins',
     '/team-attendance': '/attendance/team',
     '/departments': '/people/departments',
     '/system': '/settings/health',

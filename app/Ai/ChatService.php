@@ -7,7 +7,10 @@ use App\Models\Attachment;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\ModelChoice;
+use App\Models\PluginApp;
 use App\Models\User;
+use App\Plugins\PluginRegistry;
+use App\Plugins\PluginTicket;
 use App\Support\BusinessDay;
 use App\Support\Settings;
 use Illuminate\Support\Facades\Storage;
@@ -73,6 +76,7 @@ class ChatService
             throw new AgentUnavailable; // agents exist but this conversation has none and there is no default to fall back to
         }
 
+        $requestId = 'chat-'.Str::lower(Str::random(16));
         $context = $this->context($c);
         $format = $c->messages()->whereNull('superseded_at')->where('role', 'user')->latest('id')->value('output_format');
         // A format asked for by name (API only) is strict. Otherwise the agent decides, from what the person wrote, whether a file is wanted.
@@ -80,6 +84,10 @@ class ChatService
         // The person's own preferences come after the company rules. Not for strict file output, and not while a Super Admin views as them.
         if ($personalize && ! $format && ($preferences = Personalization::promptFor($user)) !== '') {
             $system .= "\n\n".$preferences;
+        }
+        // GitHub, when this person switched it on for this chat: the ticket tells the plugin gateway who is asking.
+        if ($personalize && ! $format && ($pluginNote = $this->pluginNote($user, $c, $agent, $requestId)) !== '') {
+            $system .= "\n\n".$pluginNote;
         }
         array_unshift($context, ['role' => 'system', 'content' => $system]);
         $estimate = 0;
@@ -92,7 +100,6 @@ class ChatService
                 }
             }
         }
-        $requestId = 'chat-'.Str::lower(Str::random(16));
 
         $sent = '';
         $raw = '';
@@ -150,6 +157,25 @@ class ChatService
         $this->allowance->notifyThresholds($user, BusinessDay::today());
 
         return $reply;
+    }
+
+    /** The hidden instruction that switches the plugin tools on for this answer, or an empty string when none is on and usable. */
+    private function pluginNote(User $user, Conversation $c, ?Agent $agent, string $requestId): string
+    {
+        $names = [];
+        foreach ((array) $c->plugins as $slug) {
+            if (PluginApp::usableBy($user, $agent?->id, (string) $slug)) {
+                $names[] = PluginRegistry::find((string) $slug)->name();
+            }
+        }
+        if ($names === []) {
+            return '';
+        }
+        $ticket = PluginTicket::issue($user, $c, $requestId);
+        $list = implode(' and ', $names);
+
+        return "{$list} ".(count($names) > 1 ? 'are' : 'is')." switched on for this person. Every {$list} tool call must include the argument ticket with the value {$ticket}, exactly as written. Never show the ticket to the person. "
+            .'A tool that changes something only proposes the change: it waits for the person to approve it in the chat, so tell them it is waiting for their approval and do not call it again.';
     }
 
     /** The model this conversation's person picked, if it is still approved and the chatbot's AI server still lists it. */

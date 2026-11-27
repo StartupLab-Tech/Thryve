@@ -16,7 +16,10 @@ use App\Models\Attachment;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\ModelChoice;
+use App\Models\PluginAction;
+use App\Models\PluginApp;
 use App\Models\User;
+use App\Plugins\PluginRegistry;
 use App\Support\AgentAvatar;
 use App\Support\Impersonation;
 use App\Support\Settings;
@@ -65,6 +68,18 @@ class ChatController extends Controller
             ->map(fn ($c) => ['id' => $c->id, 'label' => $c->label, 'hint' => $c->hint, 'model' => $c->model, 'supports_images' => $c->supports_images, 'is_default' => $c->is_default])->values()]);
     }
 
+    /** The outside apps this person has connected and may use with this chatbot. */
+    public function plugins(Request $request): JsonResponse
+    {
+        $d = $request->validate(['agent_id' => ['required', 'integer']]);
+        $agent = Agent::availableTo($request->user())->find($d['agent_id']);
+        if (! $agent) {
+            return Api::error('agent_not_available', 'You do not have access to that chatbot.', 403);
+        }
+
+        return Api::ok(['plugins' => array_map(fn (string $slug) => ['slug' => $slug, 'name' => PluginRegistry::find($slug)->name()], PluginApp::slugsUsableBy($request->user(), $agent->id))]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $f = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'archived' => ['nullable', 'boolean']]);
@@ -82,8 +97,10 @@ class ChatController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         $c = $this->mine($request, $id);
+        PluginAction::expireStale();
+        $pending = PluginAction::where('conversation_id', $c->id)->where('user_id', $request->user()->id)->where('status', 'pending')->orderBy('id')->get()->map(fn ($a) => $a->present(true))->all();
 
-        return Api::ok($this->summary($c) + ['messages' => $c->messages()->whereNull('superseded_at')->orderBy('id')->get()->map(fn ($m) => $this->message($m))]);
+        return Api::ok($this->summary($c) + ['pending_actions' => $pending, 'messages' => $c->messages()->whereNull('superseded_at')->orderBy('id')->get()->map(fn ($m) => $this->message($m))]);
     }
 
     /** Start a conversation (or continue one) with a new message. */
@@ -98,6 +115,8 @@ class ChatController extends Controller
             'attachment_ids.*' => ['integer'],
             'output_format' => ['nullable', 'in:'.implode(',', GeneratedFiles::FORMATS)],
             'model_choice_id' => ['nullable', 'integer'],
+            'plugins' => ['nullable', 'array'],
+            'plugins.*' => ['string'],
         ]);
         $text = trim($d['message']);
         if ($text === '') {
@@ -105,6 +124,7 @@ class ChatController extends Controller
         }
         // A pick is optional. Sending the key with null goes back to the chatbot's own model; leaving it out keeps the conversation's pick.
         $pickGiven = array_key_exists('model_choice_id', $d);
+        $pluginsGiven = array_key_exists('plugins', $d); // like the model: present sets the plugins (empty clears them), absent keeps what the chat has
         $choice = $pickGiven && $d['model_choice_id'] !== null ? ModelChoice::enabled()->find($d['model_choice_id']) : null;
         if ($pickGiven && $d['model_choice_id'] !== null && ! $choice) {
             return Api::error('model_not_available', 'That model is not available. Choose another one.', 422, ['model_choice_id' => ['That model is not available.']]);
@@ -127,6 +147,9 @@ class ChatController extends Controller
             if ($problem = $this->imageProblem($effective, $files, $c)) {
                 return $problem;
             }
+            if ($pluginsGiven && ($problem = $this->pluginProblem($user, Agent::active()->find($c->agent_id), $d['plugins'] ?? []))) {
+                return $problem;
+            }
         } else {
             $agent = $this->pickAgent($user, $d['agent_id'] ?? null);
             if ($agent instanceof JsonResponse) {
@@ -135,7 +158,13 @@ class ChatController extends Controller
             if ($problem = $this->imageProblem($choice, $files, null)) {
                 return $problem;
             }
+            if ($pluginsGiven && ($problem = $this->pluginProblem($user, $agent, $d['plugins'] ?? []))) {
+                return $problem;
+            }
             $c = $this->chat->start($user, $agent, $text);
+        }
+        if ($pluginsGiven) {
+            $c->update(['plugins' => array_values(array_unique($d['plugins'] ?? [])) ?: null]);
         }
         if ($pickGiven) {
             $c->update(['model_choice_id' => $choice?->id]);
@@ -246,6 +275,18 @@ class ChatController extends Controller
         }
 
         return Api::error('agent_not_available', 'This chatbot is not available to you right now. You can still read this conversation.', 403);
+    }
+
+    /** Every plugin asked for must be one this person can use with this chatbot right now. */
+    private function pluginProblem(User $user, ?Agent $agent, array $slugs): ?JsonResponse
+    {
+        foreach ($slugs as $slug) {
+            if ($agent === null || ! PluginApp::usableBy($user, $agent->id, (string) $slug)) {
+                return Api::error('plugin_not_available', 'That plugin is not available. Connect it on the Plugins page first, or ask an administrator.', 422, ['plugins' => ['That plugin is not available.']]);
+            }
+        }
+
+        return null;
     }
 
     /** A model that cannot read images cannot answer in a conversation that has one. */
@@ -427,7 +468,7 @@ class ChatController extends Controller
 
     private function summary(Conversation $c): array
     {
-        return ['id' => $c->id, 'title' => $c->title, 'archived' => $c->archived_at !== null, 'last_message_at' => $c->last_message_at?->toIso8601String(), 'model_choice_id' => $c->model_choice_id,
+        return ['id' => $c->id, 'title' => $c->title, 'archived' => $c->archived_at !== null, 'last_message_at' => $c->last_message_at?->toIso8601String(), 'model_choice_id' => $c->model_choice_id, 'plugins' => $c->plugins ?? [],
             'agent' => $c->agent ? ['id' => $c->agent->id, 'name' => $c->agent->name, 'avatar' => AgentAvatar::url($c->agent->id)] : null];
     }
 

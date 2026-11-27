@@ -25,7 +25,8 @@ import InstallWizard from './pages/InstallWizard';
 import ChangePassword from './pages/ChangePassword';
 import Login from './pages/Login';
 import People from './pages/People';
-import { Models, Usage } from './pages/AiAgents';
+import { Models, PluginsAdmin, Usage } from './pages/AiAgents';
+import Plugins from './pages/Plugins';
 import AgentsPanel from './pages/AgentsPanel';
 import PolicyAck from './pages/PolicyAck';
 import TokenGallery from './pages/TokenGallery';
@@ -60,14 +61,16 @@ const sections = (user) => {
             { id: 'agents', path: '/agents', label: 'Agents', node: <><ViewOnly show={!sup} /><AgentsPanel canManage={sup} /></> },
             { id: 'usage', path: '/agents/usage', label: 'Usage', node: <Usage /> },
             { id: 'models', path: '/agents/models', label: 'Models', node: <><ViewOnly show={!sup} /><Models canManage={sup} /></> },
+            { id: 'plugins', path: '/agents/plugins', label: 'Plugins', node: <><ViewOnly show={!sup} /><PluginsAdmin canManage={sup} /></> },
         ] },
         '/settings': sup && { title: 'Settings', area: true, paths: SETTINGS_ITEMS.map((i) => i.path), tabs: [] },
         '/account': { title: 'Account', tabs: [{ id: 'account', path: '/account', label: 'Account', node: <Account /> }] },
+        '/plugins': { title: 'Plugins', tabs: [{ id: 'plugins', path: '/plugins', label: 'Plugins', node: <Plugins /> }] },
     };
 };
 
 function ViewOnly({ show }) {
-    return show ? <Alert tone="info" title="View only">Only a Super Admin can change agents or models.</Alert> : null;
+    return show ? <Alert tone="info" title="View only">Only a Super Admin can change agents, models or plugins.</Alert> : null;
 }
 
 function Screen() {

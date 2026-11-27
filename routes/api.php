@@ -17,6 +17,10 @@ use App\Http\Controllers\ImpersonationController;
 use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ModelChoiceController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PluginActionController;
+use App\Http\Controllers\PluginAdminController;
+use App\Http\Controllers\PluginConnectionController;
+use App\Http\Controllers\PluginGatewayController;
 use App\Http\Controllers\PolicyController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SessionAdminController;
@@ -44,6 +48,9 @@ Route::prefix('install')->middleware(['not-installed', 'throttle:60,1'])->group(
 // Agents calling in with their own key: no browser session, no cookies. One tiny endpoint, rate limited.
 Route::middleware(['installed', 'throttle:120,1'])->get('/agent/ping', [AgentController::class, 'ping']);
 
+// Hermes calling Thryve's plugin gateway with its own key: no browser session, no cookies. The ticket in each call names the person.
+Route::middleware(['installed', 'throttle:600,1'])->post('/plugins/gateway', [PluginGatewayController::class, 'handle']);
+
 // Everything else needs a finished installation and uses the cookie session ('web' group = session + CSRF).
 Route::middleware(['web', 'installed'])->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:30,1');
@@ -68,6 +75,16 @@ Route::middleware(['web', 'installed'])->group(function () {
             Route::get('/account/personalization', [AccountController::class, 'showPersonalization'])->middleware('not-viewing-as');
             Route::put('/account/personalization', [AccountController::class, 'updatePersonalization'])->middleware(['not-viewing-as', 'throttle:30,1']);
 
+            // Own outside-app logins (GitHub). Closed while a Super Admin is viewing as this person: nobody else connects or uses them.
+            Route::get('/plugins', [PluginConnectionController::class, 'index'])->middleware('not-viewing-as');
+            Route::get('/plugins/{slug}/connect', [PluginConnectionController::class, 'connect'])->where('slug', '[a-z0-9-]+')->middleware('not-viewing-as');
+            Route::get('/plugins/{slug}/callback', [PluginConnectionController::class, 'callback'])->where('slug', '[a-z0-9-]+')->middleware('not-viewing-as');
+            Route::delete('/plugins/{slug}/connection', [PluginConnectionController::class, 'disconnect'])->where('slug', '[a-z0-9-]+')->middleware('not-viewing-as');
+
+            // The person's own decision on a change the AI proposed (only the owner, only while it waits, only once).
+            Route::post('/plugin-actions/{id}/approve', [PluginActionController::class, 'approve'])->whereNumber('id')->middleware(['not-viewing-as', 'throttle:30,1']);
+            Route::post('/plugin-actions/{id}/deny', [PluginActionController::class, 'deny'])->whereNumber('id')->middleware(['not-viewing-as', 'throttle:30,1']);
+
             // Own notifications (the bell). Scoped to the signed-in user in the controller.
             Route::get('/notifications', [NotificationController::class, 'index']);
             Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
@@ -76,6 +93,7 @@ Route::middleware(['web', 'installed'])->group(function () {
             // Own conversations (private to the signed-in person).
             Route::get('/chat/agents', [ChatController::class, 'agents']);
             Route::get('/chat/models', [ChatController::class, 'models']); // the approved models this person may pick for a chatbot
+            Route::get('/chat/plugins', [ChatController::class, 'plugins']); // the outside apps this person has connected and may use with a chatbot
             Route::get('/agents/{id}/avatar', [AgentAvatarController::class, 'show'])->whereNumber('id'); // the optional chatbot picture
             Route::get('/conversations', [ChatController::class, 'index']);
             Route::post('/chat', [ChatController::class, 'send'])->middleware(['throttle:chat-send', PrepareChatRequest::class]);
@@ -141,6 +159,7 @@ Route::middleware(['web', 'installed'])->group(function () {
                 Route::get('/agents', [AgentController::class, 'index']);
                 Route::get('/agents/{id}/checks', [AgentController::class, 'checks'])->whereNumber('id');
                 Route::get('/model-choices', [ModelChoiceController::class, 'index']);
+                Route::get('/plugin-apps', [PluginAdminController::class, 'index']);
                 Route::get('/usage/summary', [UsageController::class, 'summary']);
                 Route::post('/users/{user}/token-grants', [UsageController::class, 'grant']);
 
@@ -178,6 +197,9 @@ Route::middleware(['web', 'installed'])->group(function () {
                 Route::post('/agents/{id}/inbound-key', [AgentController::class, 'inboundKey'])->whereNumber('id');
                 Route::post('/model-choices', [ModelChoiceController::class, 'store']);
                 Route::patch('/model-choices/{id}', [ModelChoiceController::class, 'update'])->whereNumber('id');
+                Route::post('/plugin-apps/gateway-key', [PluginAdminController::class, 'gatewayKey'])->middleware('throttle:10,1');
+                Route::patch('/plugin-apps/{slug}', [PluginAdminController::class, 'update'])->where('slug', '[a-z0-9-]+');
+                Route::put('/plugin-apps/{slug}/oauth', [PluginAdminController::class, 'oauth'])->where('slug', '[a-z0-9-]+');
 
                 Route::get('/system/health', [SystemController::class, 'health']);
 

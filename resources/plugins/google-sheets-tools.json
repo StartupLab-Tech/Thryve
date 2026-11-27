@@ -1,0 +1,238 @@
+{
+    "source": "Google's own sheets MCP server (tools/list), read or change by Google's read-only hint",
+    "tools": [
+        {
+            "name": "google_sheets_get_spreadsheet",
+            "remote": "get_spreadsheet",
+            "server": "sheets",
+            "description": "Returns the spreadsheet content for the given spreadsheet.\nReturns titles, sheet names, grid properties, and other metadata for the given spreadsheet ID. Also returns full grid data if requested.\n\nCorresponds to spreadsheets.get in the REST API:\nhttps://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/get\n\nSchema:\n- `spreadsheetId` (string, required): The ID of the spreadsheet to request.\n- `includeGridData` (boolean, optional): True if grid data should be returned. Defaults to false.\n- `fields` (array of strings, optional): Field masks specifying which properties to r",
+            "kind": "read",
+            "inputSchema": {
+                "properties": {
+                    "commentsIncluded": {
+                        "description": "Optional. If true, comments will be included in the response. By default, comments are not included.",
+                        "type": "boolean"
+                    },
+                    "fields": {
+                        "description": "Optional. A field mask to specify which properties to return of the Spreadsheets API, see https://developers.google.com/workspace/sheets/api/guides/field-masks for more on how to use the field masks. IMPORTANT: Use hierarchical paths based on the response JSON structure of the Sheets API. - For example, to get the sheet title and ID, use 'sheets.properties.sheetId' and 'sheets.properties.title' instead of 'title,sheetId'. - Only include the fields you need. - To get tables, use: 'sheets.tables' or 'sheets.properties'. - To get sheet titles and IDs, use: 'sheets.properties.sheetId' and 'sheets.properties.title'.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "includeGridData": {
+                        "description": "True if grid data should be returned.",
+                        "type": "boolean"
+                    },
+                    "ranges": {
+                        "description": "Optional. The [A1 notation or R1C1 notation](https://developers.google.com/workspace/sheets/api/guides/concepts) of the ranges to retrieve from the spreadsheet. If not specified, the entire spreadsheet is returned.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "spreadsheetId": {
+                        "description": "Required. The ID of the spreadsheet to request.",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "spreadsheetId"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "name": "google_sheets_get_values",
+            "remote": "get_values",
+            "server": "sheets",
+            "description": "Returns a range of values from a spreadsheet.\n\nCorresponds to spreadsheets.values.get in the REST API:\nhttps://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get\n\nSchema:\n- `spreadsheetId` (string, required): The ID of the spreadsheet to retrieve data from.\n- `range` (string, required): The A1 notation or R1C1 notation of the range to retrieve values from (e.g. `\"Sheet1!A1:B10\"`).\n",
+            "kind": "read",
+            "inputSchema": {
+                "properties": {
+                    "range": {
+                        "description": "Required. The [A1 notation or R1C1 notation](https://developers.google.com/workspace/sheets/api/guides/concepts) of the range to retrieve values from.",
+                        "type": "string"
+                    },
+                    "spreadsheetId": {
+                        "description": "Required. The ID of the spreadsheet to retrieve data from.",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "spreadsheetId",
+                    "range"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "name": "google_sheets_insert_dimension",
+            "remote": "insert_dimension",
+            "server": "sheets",
+            "description": "Inserts rows or columns in a sheet at a particular index.\n\nCorresponds to an InsertDimensionRequest in the spreadsheets.batchUpdate REST API:\nhttps://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request\n\nSchema:\n- `spreadsheetId` (string, required): The ID of the spreadsheet to update.\n- `sheetId` (integer, required): The ID of the sheet to insert into.\n- `dimension` (string, required): `\"ROWS\"` or `\"COLUMNS\"`.\n- `startIndex` (integer, required): The 0-based start index of the insertion (inclusive).\n- `endIndex` (integer, required): The 0-based end index of the ins",
+            "kind": "write",
+            "inputSchema": {
+                "properties": {
+                    "dimension": {
+                        "description": "Required. The dimension to insert.",
+                        "enum": [
+                            "DIMENSION_UNSPECIFIED",
+                            "COLUMNS",
+                            "ROWS"
+                        ],
+                        "type": "string",
+                        "x-google-enum-descriptions": [
+                            "The default value, do not use.",
+                            "Operates on the columns of a sheet.",
+                            "Operates on the rows of a sheet."
+                        ]
+                    },
+                    "endIndex": {
+                        "description": "Required. The 0-based end index of the insertion (exclusive).",
+                        "format": "int32",
+                        "type": "integer"
+                    },
+                    "inheritFromBefore": {
+                        "description": "Whether dimension properties should be extended from the dimensions before or after the newly inserted dimensions. True to inherit from the dimensions before (in which case the start index must be greater than 0), and false to inherit from the dimensions after.",
+                        "type": "boolean"
+                    },
+                    "sheetId": {
+                        "description": "Required. The ID of the sheet to insert into.",
+                        "format": "int32",
+                        "type": "integer"
+                    },
+                    "spreadsheetId": {
+                        "description": "Required. The ID of the spreadsheet to update.",
+                        "type": "string"
+                    },
+                    "startIndex": {
+                        "description": "Required. The 0-based start index of the insertion (inclusive).",
+                        "format": "int32",
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "spreadsheetId",
+                    "sheetId",
+                    "dimension",
+                    "startIndex",
+                    "endIndex"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "name": "google_sheets_update_formulas",
+            "remote": "update_formulas",
+            "server": "sheets",
+            "description": "Sets formulas in a range of a spreadsheet.\n\nCorresponds to spreadsheets.values.update in the REST API:\nhttps://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update\n\nSchema:\n- `spreadsheetId` (string, required): The ID of the spreadsheet to update.\n- `range` (string, required): The A1 notation of the range to update formulas in (e.g. `\"Sheet1!C1:C2\"`).\n- `formulas` (array of arrays, required): 2D array of formula strings (e.g. `[[\"=A1+B1\"], [\"=A2+B2\"]]`).\n",
+            "kind": "write",
+            "inputSchema": {
+                "properties": {
+                    "formulas": {
+                        "description": "Required. The data that was read or to be written. This is an array of arrays, the outer array representing all the data and each inner array representing a row. Each item in the inner array corresponds with one cell. Supported value types are: bool, string, and double. Null values will be skipped. To set a cell to an empty value, set the string value to an empty string.",
+                        "items": {
+                            "items": [],
+                            "type": "array"
+                        },
+                        "type": "array"
+                    },
+                    "range": {
+                        "description": "Required. The [A1 notation](https://developers.google.com/workspace/sheets/api/guides/concepts.md.txt) of the values to update.",
+                        "type": "string"
+                    },
+                    "spreadsheetId": {
+                        "description": "Required. The ID of the spreadsheet to update.",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "spreadsheetId",
+                    "range",
+                    "formulas"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "name": "google_sheets_update_spreadsheet",
+            "remote": "update_spreadsheet",
+            "server": "sheets",
+            "description": "Applies one or more updates to the spreadsheet.\n\nCorresponds to spreadsheets.batchUpdate in the REST API:\nhttps://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate\n\nThe list of possible updates is:\n\n- `updateSpreadsheetProperties`: Updates the spreadsheet's properties.\n  Schema:\n  - `properties` (object, required): Spreadsheet properties to update (`{\"title\": string, \"locale\": string, \"timeZone\": string}`).\n  - `fields` (string, required): Field mask of properties to update (e.g. `\"title\"` or `\"*\"`).\n- `updateSheetProperties`: Updates a sheet's properties.\n ",
+            "kind": "write",
+            "inputSchema": {
+                "$defs": {
+                    "WriteControl": {
+                        "description": "Provides control over how write requests are executed.",
+                        "properties": {
+                            "requiredRevisionId": {
+                                "description": "The revision ID of the spreadsheet that the write request will be applied to. If this is not the latest revision of the document, the request will not be processed and will return a 400 bad request error. When a required revision ID is returned in a response, it indicates the revision ID of the spreadsheet after the request was applied.",
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "properties": {
+                    "requests": {
+                        "description": "Required. A list of updates to apply to the spreadsheet. Each request should be a valid spreadsheets.batchUpdate Request object, using the schema documented in: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request Requests will be applied in the order they are specified. If any request is not valid, no requests will be applied.",
+                        "items": {
+                            "additionalProperties": {
+                                "description": "Properties of the object."
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "spreadsheetId": {
+                        "description": "Required. The ID of the spreadsheet to update.",
+                        "type": "string"
+                    },
+                    "writeControl": {
+                        "$ref": "#/$defs/WriteControl",
+                        "description": "Optional. Provides control over how write requests are executed."
+                    }
+                },
+                "required": [
+                    "spreadsheetId",
+                    "requests"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "name": "google_sheets_update_values",
+            "remote": "update_values",
+            "server": "sheets",
+            "description": "Sets values in a range of a spreadsheet.\n\nCorresponds to spreadsheets.values.update in the REST API:\nhttps://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update\n\nSchema:\n- `spreadsheetId` (string, required): The ID of the spreadsheet to update.\n- `range` (string, required): The A1 notation of the values to update (e.g. `\"Sheet1!A1:B2\"`).\n- `values` (array of arrays, required): 2D array of cell values. Supported value types are: boolean, string, and number (float/int).\n",
+            "kind": "write",
+            "inputSchema": {
+                "properties": {
+                    "range": {
+                        "description": "Required. The [A1 notation](https://developers.google.com/workspace/sheets/api/guides/concepts.md.txt) of the values to update.",
+                        "type": "string"
+                    },
+                    "spreadsheetId": {
+                        "description": "Required. The ID of the spreadsheet to update.",
+                        "type": "string"
+                    },
+                    "values": {
+                        "description": "Required. The data that was read or to be written. This is an array of arrays, the outer array representing all the data and each inner array representing a row. Each item in the inner array corresponds with one cell. Supported value types are: bool, string, and double. Null values will be skipped. To set a cell to an empty value, set the string value to an empty string.",
+                        "items": {
+                            "items": [],
+                            "type": "array"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "spreadsheetId",
+                    "range",
+                    "values"
+                ],
+                "type": "object"
+            }
+        }
+    ]
+}
