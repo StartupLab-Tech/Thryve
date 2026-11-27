@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Plugins\AbstractProvider;
 use App\Plugins\PluginRegistry;
 use App\Plugins\PluginTicket;
+use App\Plugins\Providers\GoogleGmailProvider;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -460,7 +461,7 @@ class GoogleProviderTest extends TestCase
         return [
             ['name' => 'google_gmail_search_threads', 'remote' => 'search_threads', 'server' => 'gmail', 'description' => 'Search mail', 'kind' => 'read', 'inputSchema' => $schema],
             ['name' => 'google_gmail_create_draft', 'remote' => 'create_draft', 'server' => 'gmail', 'description' => 'Create a draft', 'kind' => 'write', 'inputSchema' => $schema],
-            ['name' => 'google_gmail_send_draft', 'remote' => 'send_draft', 'server' => 'gmail', 'description' => 'Send a draft', 'kind' => 'write', 'inputSchema' => $schema],
+            ['name' => 'google_gmail_send_message', 'remote' => 'send_message', 'server' => 'gmail', 'description' => 'Send a draft', 'kind' => 'write', 'inputSchema' => $schema],
         ];
     }
 
@@ -488,10 +489,10 @@ class GoogleProviderTest extends TestCase
         $names = collect($this->gatewayRpc('tools/list')->json('result.tools'))->pluck('name');
         $this->assertTrue($names->contains('google_gmail_search_threads'));
         $this->assertTrue($names->contains('google_gmail_create_draft'));
-        $this->assertFalse($names->contains('google_gmail_send_draft'), 'sending is never offered');
+        $this->assertFalse($names->contains('google_gmail_send_message'), 'sending is never offered');
 
-        $this->callTool('google_gmail_send_draft', ['draftId' => 'd1'])->assertOk()->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', 'Gmail is not available for this request.');
-        $this->assertSame(0, PluginAction::where('tool', 'google_gmail_send_draft')->count(), 'not even proposed');
+        $this->callTool('google_gmail_send_message', ['draftId' => 'd1'])->assertOk()->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', 'Gmail is not available for this request.');
+        $this->assertSame(0, PluginAction::where('tool', 'google_gmail_send_message')->count(), 'not even proposed');
         $this->assertCount(0, $this->toolCalls());
     }
 
@@ -549,5 +550,181 @@ class GoogleProviderTest extends TestCase
 
         $this->assertSame('keep me', file_get_contents($path));
         unlink($path);
+    }
+
+    // ---- sending a Gmail draft -----------------------------------------------------------------------
+
+    private const SEND = GoogleGmailProvider::SEND;
+
+    /** @var array<string, mixed> the draft Gmail "has" while a test runs: tests change it to simulate an edit */
+    private array $draft = [];
+
+    private function b64(string $text): string
+    {
+        return rtrim(strtr(base64_encode($text), '+/', '-_'), '=');
+    }
+
+    /** @return array<string, mixed> */
+    private function draftOf(string $to = 'real@example.com', string $subject = 'Real subject', string $body = 'Real text of the email.', ?array $payload = null): array
+    {
+        $headers = array_values(array_filter([
+            $to !== '' ? ['name' => 'To', 'value' => $to] : null, ['name' => 'Subject', 'value' => $subject],
+        ]));
+
+        return ['id' => 'd1', 'message' => ['id' => 'm1', 'payload' => ($payload ?? ['mimeType' => 'text/plain', 'body' => ['data' => $this->b64($body)]]) + ['headers' => $headers]]];
+    }
+
+    /** Gmail's draft API: the draft in $this->draft (or 404 when empty), and the send. */
+    private function fakeGmailDrafts(): void
+    {
+        Http::fake(function (Request $request) {
+            if ($request->method() === 'POST' && str_ends_with($request->url(), '/drafts/send')) {
+                return Http::response(['id' => 'sent-1', 'threadId' => 't1', 'labelIds' => ['SENT']]);
+            }
+
+            return $this->draft === [] ? Http::response(['error' => ['message' => 'Requested entity was not found.']], 404) : Http::response($this->draft);
+        });
+    }
+
+    private function allowSending(): void
+    {
+        PluginApp::for('google-gmail')->update(['is_enabled' => true, 'agent_ids' => [$this->agent->id], 'tools' => [self::SEND => true]]);
+        $this->connect('google-gmail', 'ya29.mail');
+    }
+
+    private function sends(): Collection
+    {
+        return Http::recorded(fn (Request $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/drafts/send'))->map(fn ($pair) => $pair[0])->values();
+    }
+
+    public function test_sending_is_off_until_an_admin_allows_it_and_other_send_tools_stay_blocked(): void
+    {
+        $this->loadGmailTools($this->gmailTools());
+        PluginRegistry::forget();
+        PluginApp::for('google-gmail')->update(['is_enabled' => true, 'agent_ids' => [$this->agent->id]]);
+        $this->connect('google-gmail', 'ya29.mail');
+        $this->fakeGmailDrafts();
+        $this->draft = $this->draftOf();
+
+        $this->assertFalse(collect($this->gatewayRpc('tools/list')->json('result.tools'))->pluck('name')->contains(self::SEND), 'off by default');
+        $this->callTool(self::SEND, ['draftId' => 'd1'])->assertOk()->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', 'Gmail is not available for this request.');
+        $this->assertSame(0, PluginAction::where('tool', self::SEND)->count());
+
+        [, $cookie] = $this->signIn($this->makeUser(Role::SUPER_ADMIN));
+        $r = $this->device($cookie)->patchJson('/api/plugin-apps/google-gmail', ['tools' => [self::SEND => true]])->assertOk();
+        $tool = collect(collect($r->json('data.apps'))->firstWhere('slug', 'google-gmail')['tools'])->firstWhere('name', self::SEND);
+        $this->assertTrue($tool['enabled']);
+        $this->assertTrue($tool['default_off']);
+        $names = collect($this->gatewayRpc('tools/list')->json('result.tools'))->pluck('name');
+        $this->assertTrue($names->contains(self::SEND));
+        $this->assertFalse($names->contains('google_gmail_send_message'), 'any other send tool stays blocked');
+        $this->device($cookie)->patchJson('/api/plugin-apps/google-gmail', ['tools' => ['google_gmail_send_message' => true]])->assertStatus(422);
+    }
+
+    public function test_the_approve_card_shows_the_real_draft_and_not_what_the_ai_said(): void
+    {
+        $this->allowSending();
+        $this->fakeGmailDrafts();
+        $this->draft = $this->draftOf('Real Person <real@example.com>', 'Real subject', 'Real text of the email.');
+
+        $this->callTool(self::SEND, ['draftId' => 'd1', 'to' => 'attacker@evil.test', 'subject' => 'Invented', 'body' => 'Invented', 'bcc' => 'spy@evil.test'])->assertOk()->assertJsonPath('result.isError', false);
+
+        $action = PluginAction::where('tool', self::SEND)->sole();
+        $this->assertSame('pending', $action->status);
+        $arguments = $action->arguments;
+        $this->assertSame('Real Person <real@example.com>', $arguments['to']);
+        $this->assertSame('Real subject', $arguments['subject']);
+        $this->assertSame('Real text of the email.', $arguments['body_preview']);
+        $this->assertArrayNotHasKey('bcc', $arguments);
+        $this->assertStringNotContainsString('evil.test', json_encode($arguments));
+        $this->assertNotEmpty($arguments['_fingerprint']);
+        $this->assertStringContainsString('subject "Real subject"', $action->summary);
+        $this->assertCount(0, $this->sends(), 'nothing is sent by proposing');
+    }
+
+    public function test_the_text_is_read_once_from_a_mail_with_a_plain_and_an_html_version_and_attachments_are_named(): void
+    {
+        $this->allowSending();
+        $this->fakeGmailDrafts();
+        $this->draft = $this->draftOf(payload: ['mimeType' => 'multipart/mixed', 'parts' => [
+            ['mimeType' => 'multipart/alternative', 'parts' => [
+                ['mimeType' => 'text/plain', 'body' => ['data' => $this->b64('Plain words.')]],
+                ['mimeType' => 'text/html', 'body' => ['data' => $this->b64('<p>Plain words.</p>')]],
+            ]],
+            ['mimeType' => 'application/pdf', 'filename' => 'invoice.pdf', 'body' => ['attachmentId' => 'a1']],
+        ]]);
+
+        $this->callTool(self::SEND, ['draftId' => 'd1'])->assertOk();
+
+        $arguments = PluginAction::where('tool', self::SEND)->sole()->arguments;
+        $this->assertSame('Plain words.', $arguments['body_preview']);
+        $this->assertSame('invoice.pdf', $arguments['attachments']);
+    }
+
+    public function test_approving_sends_that_draft_once_as_that_person(): void
+    {
+        $this->allowSending();
+        $this->fakeGmailDrafts();
+        $this->draft = $this->draftOf();
+        $this->callTool(self::SEND, ['draftId' => 'd1'])->assertOk();
+        $action = PluginAction::where('tool', self::SEND)->sole();
+        [, $cookie] = $this->signIn($this->user);
+
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve")->assertOk()->assertJsonPath('data.action.status', 'done')->assertJsonPath('data.action.app', 'Gmail');
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve")->assertStatus(409);
+
+        $send = $this->sends()->sole();
+        $this->assertSame('d1', $send['id']);
+        $this->assertTrue($send->hasHeader('Authorization', 'Bearer ya29.mail'));
+        $this->assertStringContainsString('"sent":true', $action->fresh()->result_summary);
+        $this->assertDatabaseHas('audit_entries', ['action' => 'plugin.google-gmail.approved']);
+    }
+
+    public function test_a_draft_changed_after_the_card_was_shown_is_not_sent(): void
+    {
+        $this->allowSending();
+        $this->fakeGmailDrafts();
+        $this->draft = $this->draftOf();
+        $this->callTool(self::SEND, ['draftId' => 'd1'])->assertOk();
+        $action = PluginAction::where('tool', self::SEND)->sole();
+        $this->draft = $this->draftOf('someone-else@example.com'); // edited in Gmail after the person looked
+        [, $cookie] = $this->signIn($this->user);
+
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve")->assertOk()->assertJsonPath('data.action.status', 'failed')
+            ->assertJsonPath('data.action.result_summary', fn ($text) => str_contains($text, 'changed after you were asked'));
+
+        $this->assertCount(0, $this->sends());
+    }
+
+    public function test_a_missing_draft_a_draft_without_recipients_or_a_bad_id_cannot_even_be_proposed(): void
+    {
+        $this->allowSending();
+        $this->fakeGmailDrafts();
+
+        $this->callTool(self::SEND, ['draftId' => 'nope'])->assertOk()->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', 'That draft was not found. Create it first, then try again.');
+        $this->draft = $this->draftOf('');
+        $this->callTool(self::SEND, ['draftId' => 'd1'])->assertOk()->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', 'The draft has no recipient, so it cannot be sent.');
+        $this->callTool(self::SEND, ['draftId' => '../../settings'])->assertOk()->assertJsonPath('result.isError', true);
+        $this->callTool(self::SEND, [])->assertOk()->assertJsonPath('result.isError', true);
+
+        $this->assertSame(0, PluginAction::where('tool', self::SEND)->count());
+    }
+
+    public function test_each_person_has_a_daily_limit_and_it_is_checked_again_when_approving(): void
+    {
+        config(['plugins.google.gmail_daily_send_limit' => 1]);
+        $this->allowSending();
+        $this->fakeGmailDrafts();
+        $this->draft = $this->draftOf();
+        $this->callTool(self::SEND, ['draftId' => 'd1'])->assertOk()->assertJsonPath('result.isError', false);
+        $pending = PluginAction::where('tool', self::SEND)->sole();
+        PluginAction::factory()->create(['user_id' => $this->user->id, 'app_slug' => 'google-gmail', 'tool' => self::SEND, 'kind' => 'write', 'status' => 'done', 'executed_at' => now()]);
+
+        $this->callTool(self::SEND, ['draftId' => 'd1', 'again' => 1])->assertOk()->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.content.0.text', 'The daily limit of 1 sent emails has been reached. It resets at midnight.');
+
+        [, $cookie] = $this->signIn($this->user);
+        $this->device($cookie)->postJson("/api/plugin-actions/{$pending->id}/approve")->assertOk()->assertJsonPath('data.action.status', 'failed');
+        $this->assertCount(0, $this->sends());
     }
 }

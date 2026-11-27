@@ -83,7 +83,7 @@ final class PluginGateway
 
         return $tool['kind'] === 'read'
             ? $this->read($provider, $user, $conversation, $connection, $name, $arguments, $requestId)
-            : $this->propose($provider, $user, $conversation, $name, $arguments, $requestId);
+            : $this->propose($provider, $user, $conversation, $connection, $name, $arguments, $requestId);
     }
 
     /** @return array{0: User, 1: Conversation, 2: PluginConnection, 3: array<string, mixed>, 4: string}|null */
@@ -136,8 +136,20 @@ final class PluginGateway
     }
 
     /** @param  array<string, mixed>  $arguments  @return array<string, mixed> */
-    private function propose(Provider $provider, User $user, Conversation $conversation, string $name, array $arguments, string $requestId): array
+    private function propose(Provider $provider, User $user, Conversation $conversation, PluginConnection $connection, string $name, array $arguments, string $requestId): array
     {
+        // A plugin that must show the real thing (Gmail's send) looks it up itself; what the AI said about it is replaced.
+        if ($provider instanceof PreviewsChanges) {
+            try {
+                $arguments = $provider->previewChange($connection, $name, $arguments);
+            } catch (PluginAuthFailed) {
+                $connection->update(['status' => 'needs_reconnect']);
+
+                return $this->refused($provider);
+            } catch (PluginCallFailed $e) {
+                return $this->text($e->getMessage(), true);
+            }
+        }
         ksort($arguments);
         $hash = hash('sha256', $name.json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $existing = PluginAction::where('conversation_id', $conversation->id)->where('request_id', $requestId)->where('arguments_hash', $hash)->where('status', 'pending')->exists();

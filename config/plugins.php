@@ -57,6 +57,10 @@ return [
         'userinfo_url' => env('PLUGIN_GOOGLE_USERINFO_URL', 'https://openidconnect.googleapis.com/v1/userinfo'),
         'revoke_url' => env('PLUGIN_GOOGLE_REVOKE_URL', 'https://oauth2.googleapis.com/revoke'),
         'api_url' => env('PLUGIN_GOOGLE_API_URL', 'https://www.googleapis.com'),
+        'gmail_api_url' => env('PLUGIN_GMAIL_API_URL', 'https://gmail.googleapis.com'),
+
+        /** The most emails one person can send through Gmail in a day (when an admin has allowed sending). */
+        'gmail_daily_send_limit' => 20,
 
         /** One MCP server per product; {server} is drive, docs or sheets. The "v1self" form is for hosts that cannot show Google's extra input forms. */
         'mcp_url' => env('PLUGIN_GOOGLE_MCP_URL', 'https://{server}mcp.googleapis.com/mcp/v1self'),

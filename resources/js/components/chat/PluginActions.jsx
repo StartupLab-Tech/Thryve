@@ -21,7 +21,7 @@ export default function PluginActions({ actions, onDecided, onError }) {
                     <p>{a.summary}</p>
                     <details>
                         <summary>Details</summary>
-                        <dl>{Object.entries(a.arguments ?? {}).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{show(v)}</dd></div>)}</dl>
+                        <dl>{Object.entries(a.arguments ?? {}).filter(([k]) => !k.startsWith('_')).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{show(v)}</dd></div>)}</dl>
                     </details>
                     <div className="cw-approval-btns">
                         <Button variant="primary" size="sm" disabled={busy === a.id} onClick={() => decide(a, 'approve')}>{busy === a.id ? 'Working...' : 'Approve'}</Button>
