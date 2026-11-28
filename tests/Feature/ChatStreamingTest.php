@@ -230,6 +230,37 @@ class ChatStreamingTest extends TestCase
         $this->assertDatabaseHas('chat_requests', ['id' => $id, 'status' => 'completed']);
     }
 
+    public function test_the_steps_hermes_reports_reach_the_person_as_plain_status_lines_without_the_tool_arguments(): void
+    {
+        $progress = fn (array $frame) => "event: hermes.tool.progress\ndata: ".json_encode($frame)."\n\n";
+        $sse = $progress(['tool' => 'mcp_thryve_plugins_google_gmail_search_threads', 'label' => 'search_threads ticket=tk_secret', 'toolCallId' => 'c1', 'status' => 'running'])
+            .$progress(['tool' => 'mcp_thryve_plugins_google_gmail_search_threads', 'toolCallId' => 'c1', 'status' => 'completed'])
+            .$progress(['tool' => 'web_search', 'label' => 'web_search "riot"', 'toolCallId' => 'c2', 'status' => 'running'])
+            .$this->sse();
+        $this->mock(StreamTransport::class, function ($mock) use ($sse) {
+            $mock->shouldReceive('read')->once()->andReturnUsing(function ($url, $headers, $payload, $timeout, $receive) use ($sse) {
+                foreach (str_split($sse, 7) as $chunk) {
+                    $receive($chunk);
+                }
+
+                return false;
+            });
+        });
+        $cookie = $this->cookieFor(Role::EMPLOYEE);
+
+        $body = $this->device($cookie)->postJson('/api/chat', ['message' => 'Check my mail'], ['Accept' => 'text/event-stream', 'X-Chat-Stream-Id' => (string) Str::uuid()])->assertOk()->streamedContent();
+
+        $statuses = [];
+        preg_match_all('/event: status\ndata: (.+)\n/', $body, $found);
+        foreach ($found[1] as $json) {
+            $statuses[] = json_decode($json, true)['text'];
+        }
+        $this->assertSame(['Searching Gmail', 'Thinking about the results', 'Searching the web'], $statuses);
+        $this->assertStringNotContainsString('tk_secret', $body);
+        $this->assertStringNotContainsString('search_threads', $body);
+        $this->assertDatabaseHas('messages', ['role' => 'assistant', 'content' => 'Hello 世界']);
+    }
+
     public function test_stop_is_owner_scoped_and_preserves_partial_answer(): void
     {
         $cookie = $this->cookieFor(Role::EMPLOYEE);

@@ -60,7 +60,7 @@ class ChatService
      * Answer the latest user message. Throws TokenLimitReached, AgentUnavailable or ProviderException; the user's
      * message stays saved so the person can retry.
      */
-    public function answer(User $user, Conversation $c, string $requestKind = 'send', ?callable $emit = null, ?callable $stop = null, bool $personalize = true): Message
+    public function answer(User $user, Conversation $c, string $requestKind = 'send', ?callable $emit = null, ?callable $stop = null, bool $personalize = true, ?callable $status = null): Message
     {
         $agent = $this->agentFor($c);
         $target = null;
@@ -116,7 +116,7 @@ class ChatService
         try {
             $out = $this->runner->run(
                 $user, $agent, $requestId, $target['model'] ?? (string) Settings::get('hermes_model_label'),
-                fn () => $emit ? $this->hermes->stream($context, $target, 'thryve-user-'.$user->id.'-conversation-'.$c->id.'-'.$requestId, $push, $stop ?? fn () => false) : $this->hermes->chat($context, $target, 'thryve-user-'.$user->id.'-conversation-'.$c->id.'-'.$requestId),
+                fn () => $emit ? $this->hermes->stream($context, $target, 'thryve-user-'.$user->id.'-conversation-'.$c->id.'-'.$requestId, $push, $stop ?? fn () => false, $format ? null : $status) : $this->hermes->chat($context, $target, 'thryve-user-'.$user->id.'-conversation-'.$c->id.'-'.$requestId),
                 'chat', $estimate, $c->id, $requestKind,
             );
         } catch (ProviderException $e) {

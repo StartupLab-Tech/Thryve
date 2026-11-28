@@ -1,11 +1,33 @@
+import { useEffect, useState } from 'react';
 import Icon from '../Icon';
 import { IconButton } from '../ui/Button';
 import { Markdown } from '../../lib/markdown';
 import { sizeText } from './chatUtil';
 
+// What the assistant is doing right now, while it works: the step Hermes reports ("Searching Gmail") or, between steps, a line that
+// changes as the wait grows. The seconds count from when this answer started.
+const WAITING = [[0, 'Thinking'], [6, 'Working on it'], [20, 'Still working, this one takes a little longer'], [60, 'Almost there, thanks for waiting']];
+
+function LiveStatus({ text }) {
+    const [started] = useState(() => Date.now());
+    const [seconds, setSeconds] = useState(0);
+    useEffect(() => {
+        const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+        return () => clearInterval(timer);
+    }, [started]);
+    const label = text || WAITING.filter(([after]) => seconds >= after).pop()[1];
+    return (
+        <div className="chat-status" role="status" aria-live="polite">
+            <span className="chat-status-spin" aria-hidden="true" />
+            <span className="chat-status-text" key={label}>{label}</span>
+            {seconds >= 3 && <span className="chat-status-time" aria-hidden="true">{seconds}s</span>}
+        </div>
+    );
+}
+
 // The conversation. AI replies are plain text across the whole column (no bubble, no avatar) because answers are rich
 // text; only the person's own message sits in a bubble, on the right.
-export default function Messages({ messages, busy, liveText, stopping, pendingText, editing, setEditing, saveEdit, lastIsUser, onCopy, onRate, onRegenerate }) {
+export default function Messages({ messages, busy, liveText, liveStatus, stopping, pendingText, editing, setEditing, saveEdit, lastIsUser, onCopy, onRate, onRegenerate }) {
     const lastUserIndex = messages.reduce((acc, m, i) => (m.role === 'user' ? i : acc), -1);
     return (
         <ol className="m-thread" aria-live="polite" aria-label="Conversation">
@@ -62,7 +84,7 @@ export default function Messages({ messages, busy, liveText, stopping, pendingTe
                 <li className="m user"><div className="bubble">{pendingText}</div></li>
             )}
             {busy && (
-                <li className="m ai" aria-label={stopping ? 'Stopping response' : 'The assistant is writing'}>{liveText && <div className="body"><Markdown text={liveText} /></div>}<div className="chat-dots" aria-hidden="true"><i /><i /><i /></div>{stopping && <p className="m-note">Stopping and saving the partial answer…</p>}</li>
+                <li className="m ai" aria-label={stopping ? 'Stopping response' : 'The assistant is writing'}>{liveText && <div className="body"><Markdown text={liveText} /></div>}{liveStatus || !liveText ? <LiveStatus text={liveStatus} /> : <div className="chat-dots" aria-hidden="true"><i /><i /><i /></div>}{stopping && <p className="m-note">Stopping and saving the partial answer…</p>}</li>
             )}
         </ol>
     );

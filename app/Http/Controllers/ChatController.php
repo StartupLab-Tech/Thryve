@@ -410,7 +410,7 @@ class ChatController extends Controller
             };
             try {
                 $event('started', ['stream_id' => $id, 'conversation' => $this->summary($c)]);
-                $response = $this->respond($request, $c, $kind, fn ($text) => $event('delta', ['text' => $text]), $stop);
+                $response = $this->respond($request, $c, $kind, fn ($text) => $event('delta', ['text' => $text]), $stop, fn ($text) => $event('status', ['text' => $text]));
                 $checked = 0.;
                 $stop();
                 $payload = $response->getData(true);
@@ -433,7 +433,7 @@ class ChatController extends Controller
         }, 200, ['Content-Type' => 'text/event-stream; charset=UTF-8', 'Cache-Control' => 'private, no-cache, no-store, no-transform', 'X-Accel-Buffering' => 'no', 'X-Content-Type-Options' => 'nosniff']);
     }
 
-    private function respond(Request $request, Conversation $c, string $requestKind = 'send', ?callable $emit = null, ?callable $stop = null): JsonResponse|StreamedResponse
+    private function respond(Request $request, Conversation $c, string $requestKind = 'send', ?callable $emit = null, ?callable $stop = null, ?callable $status = null): JsonResponse|StreamedResponse
     {
         // A new chat only gets its conversation now: tie the reservation to it so the same chat cannot answer twice.
         if ($id = $request->attributes->get('chat_request_id')) {
@@ -445,7 +445,7 @@ class ChatController extends Controller
         $base = ['conversation' => $this->summary($c)];
         try {
             $viewingAs = (bool) $request->attributes->get('viewing_as', Impersonation::active($request));
-            $reply = $this->chat->answer($request->user(), $c, $requestKind, $emit, $stop, ! $viewingAs);
+            $reply = $this->chat->answer($request->user(), $c, $requestKind, $emit, $stop, ! $viewingAs, $status);
         } catch (FileGenerationFailed $e) {
             return Api::error('file_generation_failed', $e->getMessage().' Your message is saved; generation may have used tokens.', 502, $base);
         } catch (TokenLimitReached $e) {

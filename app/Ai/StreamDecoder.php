@@ -17,7 +17,8 @@ final class StreamDecoder
 
     private int $bytes = 0;
 
-    public function __construct(private \Closure $emit) {}
+    /** @param  \Closure(string): void|null  $status  gets a plain status line each time Hermes starts or finishes a tool */
+    public function __construct(private \Closure $emit, private ?\Closure $status = null) {}
 
     public function feed(string $bytes): void
     {
@@ -53,6 +54,13 @@ final class StreamDecoder
             $body = json_decode($raw, true);
             if (! is_array($body)) {
                 throw new ProviderException('bad_response', ambiguous: true);
+            }
+            if ($type === 'hermes.tool.progress') {
+                if ($this->status && is_string($body['tool'] ?? null)) {
+                    ($this->status)(($body['status'] ?? null) === 'running' ? ToolStatus::label($body['tool']) : 'Thinking about the results');
+                }
+
+                continue;
             }
             $choice = $body['choices'][0] ?? [];
             if ($type === 'error' || isset($body['error']) || ($body['hermes']['failed'] ?? false) || ($choice['finish_reason'] ?? null) === 'error') {

@@ -71,6 +71,7 @@ export default function Chat() {
     const [draft, setDraft] = useState('');
     const [busy, setBusy] = useState(false);
     const [liveText, setLiveText] = useState('');
+    const [liveStatus, setLiveStatus] = useState(null);
     const [stopping, setStopping] = useState(false);
     const [canStop, setCanStop] = useState(false);
     const [error, setError] = useState(null); // {message, code}
@@ -86,7 +87,7 @@ export default function Chat() {
     // An answer keeps running when the person opens another chat: it moves to `bg` and finishes quietly (the server saves it).
     const bg = useRef(new Set());
     const mounted = useRef(true);
-    const backgroundStream = useCallback(() => { const ctl = abort.current; if (!ctl) return; bg.current.add(ctl); abort.current = null; setBusy(false); setLiveText(''); setPendingText(null); setCanStop(false); setStopping(false); }, []);
+    const backgroundStream = useCallback(() => { const ctl = abort.current; if (!ctl) return; bg.current.add(ctl); abort.current = null; setBusy(false); setLiveText(''); setLiveStatus(null); setPendingText(null); setCanStop(false); setStopping(false); }, []);
     const pathRef = useRef(path); pathRef.current = path;
     useEffect(() => {
         const ctl = abort.current;
@@ -121,7 +122,7 @@ export default function Chat() {
                 if (cancelled) return;
                 setCurrent(c); stick.current = true; if (c.agent) setPicked(c.agent.id);
                 const live = [...bg.current].find((x) => x.conversationId === c.id);
-                if (live && !abort.current) { bg.current.delete(live); abort.current = live; setBusy(true); setCanStop(!!live.streamId); setLiveText(live.text || ''); setPendingText(null); }
+                if (live && !abort.current) { bg.current.delete(live); abort.current = live; setBusy(true); setCanStop(!!live.streamId); setLiveText(live.text || ''); setLiveStatus(live.status || null); setPendingText(null); }
             })
             .catch((e) => { if (!cancelled) { toast(errorText(e)); navigate('/chat', { replace: true }); } })
             .finally(() => { if (!cancelled) setLoadingConv(false); });
@@ -191,14 +192,15 @@ export default function Chat() {
     const run = async (fn, restore) => {
         if (abort.current) return false;
         touchCurrent();
-        setBusy(true); setError(null); setLiveText(''); setStopping(false); setCanStop(false);
+        setBusy(true); setError(null); setLiveText(''); setLiveStatus(null); setStopping(false); setCanStop(false);
         const ctl = new AbortController(); abort.current = ctl;
-        ctl.origin = pathRef.current; ctl.text = '';
+        ctl.origin = pathRef.current; ctl.text = ''; ctl.status = null;
         const active = () => abort.current === ctl && mounted.current;
         try {
             const r = await fn(ctl.signal, false, (event, data) => {
                 if (event === 'started') { ctl.streamId = data.stream_id; ctl.conversationId = data.conversation.id; if (active()) { setCanStop(true); setCurrent(previous => ({ ...data.conversation, messages: previous?.id === data.conversation.id ? previous.messages : [] })); } }
-                if (event === 'delta') { ctl.text += data.text; if (active()) setLiveText(text => text + data.text); }
+                if (event === 'delta') { ctl.text += data.text; ctl.status = null; if (active()) { setLiveText(text => text + data.text); setLiveStatus(null); } }
+                if (event === 'status') { ctl.status = data.text; if (active()) setLiveStatus(data.text); }
             });
             const conv = r.data.conversation;
             if (mounted.current) { loadList(); loadUsage(); }
@@ -229,7 +231,7 @@ export default function Chat() {
             return false;
         } finally {
             bg.current.delete(ctl);
-            if (abort.current === ctl) { abort.current = null; setBusy(false); setPendingText(null); setLiveText(''); setStopping(false); setCanStop(false); }
+            if (abort.current === ctl) { abort.current = null; setBusy(false); setPendingText(null); setLiveText(''); setLiveStatus(null); setStopping(false); setCanStop(false); }
         }
     };
 
@@ -418,7 +420,7 @@ export default function Chat() {
                     )}
                     {!loadingConv && (current || pendingText) && (
                         <div className="m-wrap">
-                            <Messages messages={messages} busy={busy} liveText={liveText} stopping={stopping} pendingText={pendingText} editing={editing} setEditing={setEditing} saveEdit={saveEdit}
+                            <Messages messages={messages} busy={busy} liveText={liveText} liveStatus={liveStatus} stopping={stopping} pendingText={pendingText} editing={editing} setEditing={setEditing} saveEdit={saveEdit}
                                 lastIsUser={lastIsUser} onCopy={copy} onRate={rate} onRegenerate={regenerate} />
                             <div ref={endRef} />
                         </div>

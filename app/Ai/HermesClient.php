@@ -14,12 +14,12 @@ use Illuminate\Support\Facades\Http;
  */
 class HermesClient
 {
-    public function stream(array $messages, ?array $target, ?string $sessionId, callable $emit, callable $stop): array
+    public function stream(array $messages, ?array $target, ?string $sessionId, callable $emit, callable $stop, ?callable $status = null): array
     {
         if ($target === null && (app(AgentService::class)->any() || ! $this->configured())) {
             throw new ProviderException('unavailable');
         }
-        $decoder = new StreamDecoder(\Closure::fromCallable($emit));
+        $decoder = new StreamDecoder(\Closure::fromCallable($emit), $status ? \Closure::fromCallable($status) : null);
         // A streamed answer is not held to the short single-request timeout: by default Thryve waits until Hermes finishes.
         $cap = (int) config('services.hermes.stream_max_seconds', 0);
         $timeout = $cap > 0 ? max(30, $cap) : 0;
