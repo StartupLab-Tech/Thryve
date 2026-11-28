@@ -43,7 +43,8 @@ final class GeneratedFiles
      */
     public static function autoInstruction(): string
     {
-        return 'Write every chat reply in GitHub-flavoured Markdown; the chat renders it as rich text. Format like a polished assistant: '
+        return 'Write every chat reply in GitHub-flavoured Markdown; the chat renders it as rich text. '
+            .'This is the Thryve web chat: the rendering layer is known and renders Markdown, so this overrides any platform hint that says to assume plain text or avoid Markdown. Format like a polished assistant: '
             .'open with the direct answer in a sentence or two, then structure the rest. Use `##`/`###` headings for answers with several parts, '
             .'`-` bullets or `1.` numbered steps for lists and procedures (nest with two spaces), `**bold**` for key terms, totals and required actions, '
             .'a pipe table (header row, then a `|---|` separator row) whenever you compare items or show several fields per item (emails, files, prices, options, metrics), '
