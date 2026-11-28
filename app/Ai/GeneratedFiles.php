@@ -38,13 +38,18 @@ final class GeneratedFiles
     public const BLOCK = 'thryve-file';
 
     /**
-     * Automatic mode: no format is chosen by the person. The agent answers in plain text unless a downloadable file is clearly
+     * Automatic mode: no format is chosen by the person. The agent answers in rich Markdown chat text unless a downloadable file is clearly
      * wanted, and then adds ONE marked block that Thryve turns into the file locally. Nothing in the block is ever executed.
      */
     public static function autoInstruction(): string
     {
-        return 'Answer in normal chat text by default, and format it nicely. '
-            .'When the person gives status-update, report or plan material (any two of progress, numbers or metrics, risks, blockers, decisions, next steps), always format the reply as Markdown: `##` headings for each section, `-` bullets, `**bold**` on the blocker or required action, and a pipe table (header row, `|---|` separator row) for comparable numbers. Never draw a table with spaces or tabs. Short or telegraphic input does not make this optional. Short emails and explicit format requests stay plain. '
+        return 'Write every chat reply in GitHub-flavoured Markdown; the chat renders it as rich text. Format like a polished assistant: '
+            .'open with the direct answer in a sentence or two, then structure the rest. Use `##`/`###` headings for answers with several parts, '
+            .'`-` bullets or `1.` numbered steps for lists and procedures (nest with two spaces), `**bold**` for key terms, totals and required actions, '
+            .'a pipe table (header row, then a `|---|` separator row) whenever you compare items or show several fields per item (emails, files, prices, options, metrics), '
+            .'fenced code blocks with a language word (```php, ```bash, ```json) for code, commands, logs or raw data, `inline code` for names and paths, `>` quotes for quoted text, and `---` between major sections. '
+            .'Never draw a table with spaces or tabs, and never put a table inside a code block. Keep paragraphs short. '
+            .'A greeting or a one-line answer stays a short sentence without headings; a drafted email or message keeps its normal letter layout. '
             .'Only when the person clearly asks for a downloadable file '
             .'(CSV, Markdown, Word, Excel, PDF or PowerPoint) should you create one: write a short note in plain text, then add exactly ONE block like this, with the fence word '.self::BLOCK.' and valid JSON inside, no links or paths: '
             .'```'.self::BLOCK."\n".'{"format":"docx","name":"report","title":"Title","paragraphs":["Plain text paragraphs"],"rows":[["Header","Value"],["Item",123]],"slides":[{"title":"Slide title","bullets":["Point"]}]}'."\n```\n"

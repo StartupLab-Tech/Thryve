@@ -260,7 +260,7 @@ class PersonalizationTest extends TestCase
         $this->device($superCookie)->postJson('/api/chat', ['message' => 'Hi'], ['Accept' => 'text/event-stream', 'X-Chat-Stream-Id' => (string) Str::uuid()])->assertOk()->streamedContent();
 
         $this->assertStringNotContainsString('Maria', $seen);
-        $this->assertStringContainsString('Answer in normal chat text', $seen);
+        $this->assertStringContainsString('Write every chat reply in GitHub-flavoured Markdown', $seen);
     }
 
     // ---- privacy -------------------------------------------------------------------------------------
