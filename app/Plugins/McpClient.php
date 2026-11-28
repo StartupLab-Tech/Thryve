@@ -15,6 +15,9 @@ final class McpClient
 {
     private const PROTOCOL = '2025-06-18';
 
+    /** The session-free protocol Google Workspace servers use when they may ask the person first. */
+    private const ASKING_PROTOCOL = '2026-07-28';
+
     /** @param  ?string  $url  the server address; GitHub's own (read-only or full) when left out */
     public function __construct(private string $token, private bool $readonly, private ?string $url = null, private string $label = 'GitHub') {}
 
@@ -42,6 +45,77 @@ final class McpClient
         }
 
         return ['text' => $text, 'is_error' => (bool) ($result['isError'] ?? false)];
+    }
+
+    /**
+     * A call to a Google Workspace server that may first ask the person for permission (for example to read mail other people sent).
+     * Google's servers keep no session: every call says which protocol it speaks and that it can show a question, and Google answers
+     * either with the result or with a question and a state string. The question is returned as `permission`; the answer is sent back
+     * with the same tool and arguments plus that state. A server that is never told the client can ask quietly leaves such items out.
+     *
+     * @param  array<string, mixed>  $arguments
+     * @param  array{request_state: string, key: string, choice: string}|null  $answer  the person's answer to an earlier question
+     * @return array{text: string, is_error: bool, permission?: array{key: string, message: string, choices: list<array{value: string, label: string}>, request_state: string}}
+     *
+     * @throws PluginAuthFailed
+     * @throws PluginCallFailed
+     */
+    public function callToolAskingFirst(string $name, array $arguments, ?array $answer = null): array
+    {
+        $params = ['name' => $name, 'arguments' => (object) $arguments, '_meta' => [
+            'io.modelcontextprotocol/protocolVersion' => self::ASKING_PROTOCOL,
+            'io.modelcontextprotocol/clientCapabilities' => ['elicitation' => ['form' => (object) []]],
+        ]];
+        if ($answer !== null) {
+            $params['requestState'] = $answer['request_state'];
+            $params['inputResponses'] = [$answer['key'] => ['action' => 'accept', 'content' => [$answer['key'] => $answer['choice']]]];
+        }
+        $headers = ['MCP-Protocol-Version' => self::ASKING_PROTOCOL, 'Mcp-Method' => 'tools/call', 'Mcp-Name' => $name];
+        $reply = $this->send((string) $this->url, ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => $params], null, $headers);
+
+        $result = $reply['body']['result'] ?? null;
+        if (! is_array($result)) {
+            throw new PluginCallFailed("{$this->label} did not return a result.");
+        }
+        if (($result['resultType'] ?? null) === 'input_required') {
+            return ['text' => '', 'is_error' => false, 'permission' => $this->question($result)];
+        }
+        $text = '';
+        foreach ((array) ($result['content'] ?? []) as $part) {
+            if (($part['type'] ?? null) === 'text') {
+                $text .= ($text === '' ? '' : "\n").(string) $part['text'];
+            }
+        }
+
+        return ['text' => $text, 'is_error' => (bool) ($result['isError'] ?? false)];
+    }
+
+    /**
+     * The one choice question Google sends: a form with a single field whose allowed values are the answers.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array{key: string, message: string, choices: list<array{value: string, label: string}>, request_state: string}
+     *
+     * @throws PluginCallFailed
+     */
+    private function question(array $result): array
+    {
+        $requests = (array) ($result['inputRequests'] ?? []);
+        $state = $result['requestState'] ?? null;
+        $key = array_key_first($requests);
+        $request = $key === null ? null : $requests[$key];
+        $field = is_array($request) ? ($request['params']['requestedSchema']['properties'][$key] ?? null) : null;
+        if (count($requests) !== 1 || ! is_string($key) || ! is_string($state) || $state === '' || ($request['method'] ?? null) !== 'elicitation/create'
+            || ($request['params']['mode'] ?? 'form') !== 'form' || ! is_array($field) || ! is_array($field['enum'] ?? null) || $field['enum'] === []) {
+            throw new PluginCallFailed("{$this->label} asked a question Thryve cannot show.");
+        }
+        $labels = (array) ($field['enumNames'] ?? []);
+        $choices = [];
+        foreach (array_values($field['enum']) as $i => $value) {
+            $choices[] = ['value' => (string) $value, 'label' => mb_substr((string) ($labels[$i] ?? $value), 0, 60)];
+        }
+
+        return ['key' => $key, 'message' => mb_substr((string) ($request['params']['message'] ?? ''), 0, 2000), 'choices' => $choices, 'request_state' => $state];
     }
 
     /**
@@ -88,10 +162,13 @@ final class McpClient
         return [$url, $session];
     }
 
-    /** @return array{session: ?string, body: ?array} */
-    private function send(string $url, array $payload, ?string $session): array
+    /**
+     * @param  array<string, string>  $extraHeaders  replace or add headers, such as another protocol version
+     * @return array{session: ?string, body: ?array}
+     */
+    private function send(string $url, array $payload, ?string $session, array $extraHeaders = []): array
     {
-        $headers = ['Accept' => 'application/json, text/event-stream', 'MCP-Protocol-Version' => self::PROTOCOL];
+        $headers = $extraHeaders + ['Accept' => 'application/json, text/event-stream', 'MCP-Protocol-Version' => self::PROTOCOL];
         if ($session) {
             $headers['Mcp-Session-Id'] = $session;
         }

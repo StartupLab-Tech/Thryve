@@ -359,6 +359,12 @@ export default function Chat() {
     useEffect(() => { setActivePlugins(current?.plugins ?? []); }, [current?.id, current?.plugins]);
     const decided = (a, r) => {
         setCurrent((c) => c && { ...c, pending_actions: (c.pending_actions ?? []).filter((x) => x.id !== a.id), messages: r.message ? [...c.messages, r.message] : c.messages });
+        if (a.kind === 'access') {
+            // Allowed: ask the AI again, so its answer can now use what the app shows.
+            toast(r.retry ? `Allowed. Asking ${current?.agent?.name ?? 'the assistant'} again...` : r.action.status === 'denied' ? 'Not allowed' : `${a.app ?? 'The app'} could not show it`);
+            if (r.retry) regenerate();
+            return;
+        }
         toast(r.action.status === 'done' ? `Change made on ${a.app ?? 'the app'}` : r.action.status === 'denied' ? 'Change denied' : `${a.app ?? 'The app'} could not make the change`);
     };
     const decideFailed = (err, a) => { toast(err.message); if (err.status === 409 || err.status === 404) setCurrent((c) => c && { ...c, pending_actions: (c.pending_actions ?? []).filter((x) => x.id !== a.id) }); };

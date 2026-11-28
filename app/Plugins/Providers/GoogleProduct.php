@@ -5,6 +5,7 @@ namespace App\Plugins\Providers;
 use App\Models\PluginApp;
 use App\Models\PluginConnection;
 use App\Plugins\AbstractProvider;
+use App\Plugins\AsksPermission;
 use App\Plugins\ListsTools;
 use App\Plugins\McpClient;
 use App\Plugins\PluginAuthFailed;
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\Http;
  * files in `resources/plugins`, taken from Google's servers; each tool is a read or a change by Google's own read-only hint, and anything
  * without the hint counts as a change (it waits for approval).
  */
-abstract class GoogleProduct extends AbstractProvider implements ListsTools
+abstract class GoogleProduct extends AbstractProvider implements AsksPermission, ListsTools
 {
     /** The product's MCP server: drive, docs or sheets. */
     abstract protected function server(): string;
@@ -96,12 +97,32 @@ abstract class GoogleProduct extends AbstractProvider implements ListsTools
         }
     }
 
+    /**
+     * Reads tell Google that Thryve can put a question to the person, so Google asks (for example before showing mail other people sent)
+     * instead of quietly leaving those items out. Changes keep the plain call: the person already approved them on Thryve's own card.
+     */
     public function callTool(PluginConnection $connection, string $tool, array $arguments, bool $readOnly): array
     {
         $meta = $this->tools()[$tool] ?? throw new PluginCallFailed('Google does not offer that tool.');
-        $url = str_replace('{server}', $this->server(), (string) config('plugins.google.mcp_url'));
+        $url = $this->mcpUrl();
 
-        return $this->withFreshToken($connection, fn (string $token) => (new McpClient($token, $readOnly, $url, 'Google'))->callTool($meta['remote'], $arguments));
+        return $this->withFreshToken($connection, fn (string $token) => $readOnly
+            ? (new McpClient($token, true, $url, 'Google'))->callToolAskingFirst($meta['remote'], $arguments)
+            : (new McpClient($token, false, $url, 'Google'))->callTool($meta['remote'], $arguments));
+    }
+
+    public function answerPermission(PluginConnection $connection, string $tool, array $arguments, array $permission, string $choice): array
+    {
+        $meta = $this->tools()[$tool] ?? throw new PluginCallFailed('Google does not offer that tool.');
+        $url = $this->mcpUrl();
+
+        return $this->withFreshToken($connection, fn (string $token) => (new McpClient($token, true, $url, 'Google'))->callToolAskingFirst($meta['remote'], $arguments,
+            ['request_state' => (string) $permission['request_state'], 'key' => (string) $permission['key'], 'choice' => $choice]));
+    }
+
+    private function mcpUrl(): string
+    {
+        return str_replace('{server}', $this->server(), (string) config('plugins.google.mcp_url'));
     }
 
     /**

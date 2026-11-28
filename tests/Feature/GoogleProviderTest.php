@@ -517,6 +517,109 @@ class GoogleProviderTest extends TestCase
         $this->assertSame('create_draft', $this->toolCalls()->last()['params']['name']);
     }
 
+    /** Google answers a read of mail other people sent with its own question first, and with the mail once the question is answered. */
+    private function fakeGoogleAsking(): void
+    {
+        $this->fakeGoogle(mcpAnswer: function (Request $r) {
+            if (($r['method'] ?? null) !== 'tools/call' || ($r['params']['name'] ?? null) !== 'search_threads') {
+                return null;
+            }
+            if (! isset($r['params']['requestState'])) {
+                return Http::response(['jsonrpc' => '2.0', 'id' => 2, 'result' => ['resultType' => 'input_required', 'requestState' => 'state-1', 'content' => [], 'inputRequests' => ['approval_choice' => [
+                    'method' => 'elicitation/create', 'params' => ['mode' => 'form', 'message' => 'This agent needs permission to read **2 external items**. Do you want to allow this?',
+                        'requestedSchema' => ['type' => 'object', 'required' => ['approval_choice'], 'properties' => ['approval_choice' => ['type' => 'string',
+                            'enum' => ['ALLOW_ONCE', 'ALLOW_TOOL_ALWAYS', 'DENY_ONCE'], 'enumNames' => ['Allow once', 'Always allow this tool', "Don't allow"]]]]],
+                ]]]]);
+            }
+
+            return Http::response(['jsonrpc' => '2.0', 'id' => 2, 'result' => ['resultType' => 'complete', 'content' => [['type' => 'text', 'text' => 'threads: Invoice from Ana']], 'isError' => false]]);
+        });
+    }
+
+    public function test_a_gmail_read_tells_google_thryve_can_ask_and_googles_question_waits_on_a_card(): void
+    {
+        $this->loadGmailTools($this->gmailTools());
+        PluginRegistry::forget();
+        $this->fakeGoogleAsking();
+        $this->connect('google-gmail', 'ya29.mail');
+
+        $this->callTool('google_gmail_search_threads', ['query' => 'in:inbox'])->assertOk()->assertJsonPath('result.isError', false)
+            ->assertJsonPath('result.content.0.text', fn (string $t) => str_contains($t, 'waiting for them in the chat') && str_contains($t, 'Do not call this tool again'));
+
+        $call = $this->toolCalls()->sole();
+        $this->assertTrue($call->hasHeader('MCP-Protocol-Version', '2026-07-28'));
+        $this->assertTrue($call->hasHeader('Mcp-Name', 'search_threads'));
+        $this->assertSame('{"elicitation":{"form":{}}}', json_encode($call['params']['_meta']['io.modelcontextprotocol/clientCapabilities']));
+        $this->assertFalse(Http::recorded()->contains(fn ($pair) => ($pair[0]['method'] ?? null) === 'initialize'), 'Google keeps no session for these calls');
+
+        $action = PluginAction::where('kind', 'access')->sole();
+        $this->assertSame(['pending', 'google_gmail_search_threads'], [$action->status, $action->tool]);
+        $this->assertStringNotContainsString('**', $action->summary);
+
+        [, $cookie] = $this->signIn($this->user);
+        $shown = $this->device($cookie)->getJson("/api/conversations/{$this->conversation->id}")->assertOk()->json('data.pending_actions.0');
+        $this->assertSame('access', $shown['kind']);
+        $this->assertStringContainsString('2 external items', $shown['message']);
+        $this->assertSame(['ALLOW_ONCE', 'ALLOW_TOOL_ALWAYS'], array_column($shown['choices'], 'value'), 'refusing is the card\'s own button');
+        $this->assertArrayNotHasKey('arguments', $shown, 'the state for answering Google never reaches the browser');
+        $this->assertStringNotContainsString('state-1', json_encode($shown));
+
+        $this->callTool('google_gmail_search_threads', ['query' => 'in:inbox'])->assertOk();
+        $this->assertSame(1, PluginAction::where('kind', 'access')->count(), 'asking again about the same call keeps one card');
+    }
+
+    public function test_allowing_sends_the_answer_to_google_and_the_ai_gets_the_mail_once_when_it_asks_again(): void
+    {
+        $this->loadGmailTools($this->gmailTools());
+        PluginRegistry::forget();
+        $this->fakeGoogleAsking();
+        $this->connect('google-gmail', 'ya29.mail');
+        $this->callTool('google_gmail_search_threads', ['query' => 'in:inbox', 'pageSize' => 5]);
+        $action = PluginAction::where('kind', 'access')->sole();
+        [, $cookie] = $this->signIn($this->user);
+
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve", ['choice' => 'DENY_ONCE'])->assertStatus(422);
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve", ['choice' => 'SOMETHING_ELSE'])->assertStatus(422);
+        $this->assertSame('pending', $action->fresh()->status);
+
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve", ['choice' => 'ALLOW_TOOL_ALWAYS'])->assertOk()
+            ->assertJsonPath('data.retry', true)->assertJsonPath('data.message', null)->assertJsonPath('data.action.status', 'done');
+
+        $replay = $this->toolCalls()->last();
+        $this->assertSame('state-1', $replay['params']['requestState']);
+        $this->assertSame(['approval_choice' => ['action' => 'accept', 'content' => ['approval_choice' => 'ALLOW_TOOL_ALWAYS']]], $replay['params']['inputResponses']);
+        $this->assertSame(['query' => 'in:inbox', 'pageSize' => 5], (array) $replay['params']['arguments'], 'the same call that was asked about');
+        $this->assertDatabaseHas('audit_entries', ['action' => 'plugin.google-gmail.permission_given']);
+        $sentToGoogle = $this->toolCalls()->count();
+
+        $this->callTool('google_gmail_search_threads', ['pageSize' => 5, 'query' => 'in:inbox'])->assertOk()->assertJsonPath('result.content.0.text', 'threads: Invoice from Ana');
+        $this->assertCount($sentToGoogle, $this->toolCalls(), 'the allowed result is handed over without asking Google again');
+        $this->assertNull($action->fresh()->arguments, 'and then forgotten');
+
+        $this->callTool('google_gmail_search_threads', ['query' => 'in:inbox', 'pageSize' => 5]);
+        $this->assertCount($sentToGoogle + 1, $this->toolCalls(), 'only once');
+    }
+
+    public function test_not_allowing_tells_the_ai_and_never_answers_google_and_only_the_owner_can_answer(): void
+    {
+        $this->loadGmailTools($this->gmailTools());
+        PluginRegistry::forget();
+        $this->fakeGoogleAsking();
+        $this->connect('google-gmail', 'ya29.mail');
+        $this->callTool('google_gmail_search_threads', ['query' => 'in:inbox']);
+        $action = PluginAction::where('kind', 'access')->sole();
+
+        [, $otherCookie] = $this->signIn($this->makeUser(Role::EMPLOYEE));
+        $this->device($otherCookie)->postJson("/api/plugin-actions/{$action->id}/approve", ['choice' => 'ALLOW_ONCE'])->assertNotFound();
+
+        [, $cookie] = $this->signIn($this->user);
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/deny")->assertOk()->assertJsonPath('data.action.status', 'denied')
+            ->assertJsonPath('data.message.content', 'Gmail was not allowed to show it (you said no).');
+        $this->assertCount(1, $this->toolCalls(), 'Google was only asked the first time');
+        $this->assertNull($action->fresh()->arguments);
+        $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve", ['choice' => 'ALLOW_ONCE'])->assertStatus(409);
+    }
+
     public function test_the_tool_file_is_written_from_googles_own_list_by_the_command(): void
     {
         $this->fakeGoogle(mcpAnswer: fn (Request $r) => ($r['method'] ?? null) === 'tools/list' ? Http::response(['jsonrpc' => '2.0', 'id' => 3, 'result' => ['tools' => [

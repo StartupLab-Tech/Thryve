@@ -3,19 +3,36 @@ import { send } from '../../lib/api';
 import { Button } from '../ui/Button';
 
 const show = (v) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+const plain = (text) => (text ?? '').replace(/\*\*/g, '');
 
-/** Changes the AI wants to make. Nothing happens until the person approves; the exact details are one click away. */
+/**
+ * What waits for the person: changes the AI wants to make, and an app's own permission question before it shows something
+ * (Google asks before an agent reads mail other people sent). Nothing happens until the person answers.
+ */
 export default function PluginActions({ actions, onDecided, onError }) {
     const [busy, setBusy] = useState(null);
-    const decide = async (a, verb) => {
+    const decide = async (a, verb, body) => {
         setBusy(a.id);
-        try { onDecided(a, await send('POST', `/plugin-actions/${a.id}/${verb}`)); } catch (err) { onError(err, a); }
+        try { onDecided(a, await send('POST', `/plugin-actions/${a.id}/${verb}`, body)); } catch (err) { onError(err, a); }
         setBusy(null);
     };
     if (!actions?.length) return null;
     return (
-        <div className="cw-approvals" role="region" aria-label="Changes waiting for your approval">
-            {actions.map((a) => (
+        <div className="cw-approvals" role="region" aria-label="Waiting for your answer">
+            {actions.map((a) => (a.kind === 'access' ? (
+                <div key={a.id} className="cw-approval">
+                    <p className="cw-approval-title"><strong>{a.app ?? 'App'} asks for your permission</strong></p>
+                    <p>{plain(a.message ?? a.summary)}</p>
+                    <div className="cw-approval-btns">
+                        {(a.choices ?? []).map((c, i) => (
+                            <Button key={c.value} variant={i === 0 ? 'primary' : undefined} size="sm" disabled={busy === a.id} onClick={() => decide(a, 'approve', { choice: c.value })}>
+                                {busy === a.id ? 'Working...' : c.label}
+                            </Button>
+                        ))}
+                        <Button size="sm" disabled={busy === a.id} onClick={() => decide(a, 'deny')}>Don&apos;t allow</Button>
+                    </div>
+                </div>
+            ) : (
                 <div key={a.id} className="cw-approval">
                     <p className="cw-approval-title"><strong>{a.app ?? 'App'} change waiting for you</strong></p>
                     <p>{a.summary}</p>
@@ -28,7 +45,7 @@ export default function PluginActions({ actions, onDecided, onError }) {
                         <Button size="sm" disabled={busy === a.id} onClick={() => decide(a, 'deny')}>Deny</Button>
                     </div>
                 </div>
-            ))}
+            )))}
         </div>
     );
 }

@@ -21,6 +21,9 @@ final class PluginGateway
 
     private const UNKNOWN_TOOL = 'That tool is not available for this request.';
 
+    /** How long a result the person allowed waits for the AI to ask for it again, in minutes. */
+    public const GRANT_MINUTES = 10;
+
     /** @param  array<string, mixed>  $rpc  @return array<string, mixed>|null null for a notification (no reply body) */
     public function handle(array $rpc): ?array
     {
@@ -111,6 +114,12 @@ final class PluginGateway
     private function read(Provider $provider, User $user, Conversation $conversation, PluginConnection $connection, string $name, array $arguments, string $requestId): array
     {
         $summary = ActionSummary::for($name, $arguments);
+        $hash = self::argumentsHash($name, $arguments);
+        if (($granted = $this->grantedResult($conversation, $hash)) !== null) {
+            $this->record($provider, $user, $conversation, $requestId, $name, 'read', 'done', $summary, null);
+
+            return $this->text($granted, false);
+        }
         try {
             $result = $provider->callTool($connection, $name, $arguments, true);
         } catch (PluginAuthFailed) {
@@ -124,6 +133,9 @@ final class PluginGateway
             return $this->text($provider->name().' did not answer. Try again later.', true);
         }
         $connection->update(['last_used_at' => now()]);
+        if (isset($result['permission'])) {
+            return $this->askPermission($provider, $user, $conversation, $name, $arguments, $hash, $result['permission'], $requestId);
+        }
         $this->record($provider, $user, $conversation, $requestId, $name, 'read', $result['is_error'] ? 'failed' : 'done', $summary,
             $result['is_error'] ? $provider->name().' reported an error: '.mb_substr(trim((string) preg_replace('/\s+/', ' ', $result['text'])), 0, 150) : null);
         $cap = (int) config('plugins.result_cap');
@@ -150,8 +162,7 @@ final class PluginGateway
                 return $this->text($e->getMessage(), true);
             }
         }
-        ksort($arguments);
-        $hash = hash('sha256', $name.json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $hash = self::argumentsHash($name, $arguments);
         $existing = PluginAction::where('conversation_id', $conversation->id)->where('request_id', $requestId)->where('arguments_hash', $hash)->where('status', 'pending')->exists();
         if (! $existing) {
             if (PluginAction::where('conversation_id', $conversation->id)->where('status', 'pending')->where('expires_at', '>', now())->count() >= (int) config('plugins.max_pending')) {
@@ -163,6 +174,57 @@ final class PluginGateway
         }
 
         return $this->text('This change has not been made. It is waiting for the person to approve it in the chat. Do not call it again. Tell them it is waiting for their approval.', false);
+    }
+
+    /**
+     * The app asked the person first (Google, before an agent reads mail other people sent). The question waits on a card in the chat,
+     * with the state needed to answer it kept encrypted; the AI is told to stop and wait. Asking again about the same call refreshes
+     * the waiting question instead of adding another card.
+     *
+     * @param  array<string, mixed>  $arguments
+     * @param  array{key: string, message: string, choices: list<array{value: string, label: string}>, request_state: string}  $permission
+     * @return array<string, mixed>
+     */
+    private function askPermission(Provider $provider, User $user, Conversation $conversation, string $name, array $arguments, string $hash, array $permission, string $requestId): array
+    {
+        $stored = ['arguments' => $arguments, 'permission' => $permission];
+        $summary = mb_substr(trim((string) preg_replace('/\s+/', ' ', str_replace('**', '', $permission['message']))), 0, 250) ?: $provider->name().' asks for your permission.';
+        $waiting = PluginAction::where('conversation_id', $conversation->id)->where('kind', 'access')->where('arguments_hash', $hash)->where('status', 'pending')->where('expires_at', '>', now())->first();
+        if ($waiting) {
+            $waiting->update(['arguments' => $stored, 'summary' => $summary, 'request_id' => $requestId, 'expires_at' => now()->addMinutes((int) config('plugins.pending_minutes'))]);
+        } else {
+            if (PluginAction::where('conversation_id', $conversation->id)->where('status', 'pending')->where('expires_at', '>', now())->count() >= (int) config('plugins.max_pending')) {
+                return $this->text('Too many requests are already waiting for the person. Ask them to answer those first.', true);
+            }
+            $action = PluginAction::create(['user_id' => $user->id, 'conversation_id' => $conversation->id, 'request_id' => $requestId, 'app_slug' => $provider->slug(), 'tool' => $name, 'kind' => 'access',
+                'status' => 'pending', 'summary' => $summary, 'arguments' => $stored, 'arguments_hash' => $hash, 'expires_at' => now()->addMinutes((int) config('plugins.pending_minutes'))]);
+            Audit::log('plugin.'.$provider->slug().'.permission_asked', $user, null, ['tool' => $name, 'action_id' => $action->id]);
+        }
+
+        return $this->text($provider->name().' needs the person\'s permission before it can show this. The request is waiting for them in the chat. Do not call this tool again. '
+            .'Tell them to answer it on the card; once they allow it, their question is answered again automatically.', false);
+    }
+
+    /** What the app returned once the person allowed this exact call; it is handed over once, within a few minutes, and then forgotten. */
+    private function grantedResult(Conversation $conversation, string $hash): ?string
+    {
+        $granted = PluginAction::where('conversation_id', $conversation->id)->where('kind', 'access')->where('status', 'done')->where('arguments_hash', $hash)
+            ->where('executed_at', '>=', now()->subMinutes(self::GRANT_MINUTES))->whereNotNull('arguments')->latest('id')->first();
+        $result = $granted?->arguments['result'] ?? null;
+        if (! is_string($result)) {
+            return null;
+        }
+        $granted->update(['arguments' => null]);
+
+        return $result;
+    }
+
+    /** @param  array<string, mixed>  $arguments */
+    public static function argumentsHash(string $name, array $arguments): string
+    {
+        ksort($arguments);
+
+        return hash('sha256', $name.json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
     private function record(Provider $provider, User $user, Conversation $conversation, string $requestId, string $tool, string $kind, string $status, string $summary, ?string $result): void
