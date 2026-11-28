@@ -6,6 +6,7 @@ use App\Http\Responses\Api;
 use App\Models\Message;
 use App\Models\PluginAction;
 use App\Models\PluginConnection;
+use App\Plugins\ActionSummary;
 use App\Plugins\AsksPermission;
 use App\Plugins\PluginAuthFailed;
 use App\Plugins\PluginCallFailed;
@@ -42,7 +43,7 @@ class PluginActionController extends Controller
         $summary = $result !== '' ? $result : 'Done.';
         $action->update(['status' => $status, 'executed_at' => now(), 'result_summary' => mb_substr($summary, 0, 250), 'arguments' => null, 'arguments_hash' => null]);
         Audit::log('plugin.'.$action->app_slug.'.'.($status === 'done' ? 'approved' : 'approve_failed'), $user, null, ['tool' => $action->tool, 'action_id' => $action->id, 'status' => $status]);
-        $message = $this->note($action, $status === 'done' ? "{$this->label($action)} change made (you approved it): {$action->summary}. {$summary}" : "{$this->label($action)} change not made: {$action->summary}. {$summary}");
+        $message = $this->note($action, $status === 'done' ? "Done in {$this->label($action)} (you approved it): {$action->summary}. {$summary}" : "Not done in {$this->label($action)}: {$action->summary}. {$summary}");
 
         return Api::ok(['action' => $action->fresh()->present(), 'message' => $message]);
     }
@@ -58,7 +59,7 @@ class PluginActionController extends Controller
         Audit::log('plugin.'.$action->app_slug.'.denied', $user, null, ['tool' => $action->tool, 'action_id' => $action->id]);
         $message = $this->note($action, $action->kind === 'access'
             ? "{$this->label($action)} was not allowed to show it (you said no)."
-            : "{$this->label($action)} change not made (you denied it): {$action->summary}.");
+            : "Not done in {$this->label($action)} (you said no): {$action->summary}.");
 
         return Api::ok(['action' => $action->fresh()->present(), 'message' => $message]);
     }
@@ -162,7 +163,7 @@ class PluginActionController extends Controller
         $connection->update(['last_used_at' => now()]);
         $line = trim((string) preg_replace('/\s+/', ' ', $result['text']));
 
-        return $result['is_error'] ? ['failed', "{$label} reported an error: ".mb_substr($line, 0, 150)] : ['done', mb_substr($line, 0, 200)];
+        return $result['is_error'] ? ['failed', "{$label} reported an error: ".mb_substr($line, 0, 150)] : ['done', ActionSummary::outcome($result['text'])];
     }
 
     private function label(PluginAction $action): string

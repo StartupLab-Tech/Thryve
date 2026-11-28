@@ -175,7 +175,9 @@ class ChatService
         $list = implode(' and ', $names);
 
         return "{$list} ".(count($names) > 1 ? 'are' : 'is')." switched on for this person. Every {$list} tool call must include the argument ticket with the value {$ticket}, exactly as written. Never show the ticket to the person. "
-            .'A tool that changes something only proposes the change: it waits for the person to approve it in the chat, so tell them it is waiting for their approval and do not call it again.';
+            .'A tool that changes something only proposes the change: it waits for the person to approve it in the chat, so tell them it is waiting for their approval and do not call it again. '
+            .'Tell the person about tool results in plain everyday words: what you found or what happened, and a link to open it when there is one. '
+            .'Never show raw JSON, IDs, tool names, argument names or error codes; summarise them. Show found items (emails, files, issues) as a table or list.';
     }
 
     /** The model this conversation's person picked, if it is still approved and the chatbot's AI server still lists it. */

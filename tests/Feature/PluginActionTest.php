@@ -127,7 +127,7 @@ class PluginActionTest extends TestCase
 
         $r = $this->deny($action)->assertOk()->assertJsonPath('data.action.status', 'denied');
 
-        $this->assertStringContainsString('you denied it', $r->json('data.message.content'));
+        $this->assertStringContainsString('you said no', $r->json('data.message.content'));
         $this->assertNull($action->fresh()->arguments);
         $this->approve($action)->assertStatus(409);
         Http::assertNothingSent();
@@ -188,7 +188,7 @@ class PluginActionTest extends TestCase
         $r = $this->approve($action)->assertOk()->assertJsonPath('data.action.status', 'failed');
 
         $this->assertStringContainsString('500', $r->json('data.action.result_summary'));
-        $this->assertStringContainsString('GitHub change not made', $r->json('data.message.content'));
+        $this->assertStringContainsString('Not done in GitHub', $r->json('data.message.content'));
         $this->assertNull($action->fresh()->arguments);
         Http::assertSentCount(1);
     }

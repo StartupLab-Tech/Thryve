@@ -113,7 +113,7 @@ class PluginRegistryTest extends TestCase
 
         [, $cookie] = $this->signIn($this->user);
         $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve")->assertOk()->assertJsonPath('data.action.status', 'done')
-            ->assertJsonPath('data.message.content', fn ($text) => str_starts_with($text, 'Notes change made (you approved it)'));
+            ->assertJsonPath('data.message.content', fn ($text) => str_starts_with($text, 'Done in Notes (you approved it)'));
 
         $this->assertSame([['notes_create', ['title' => 'Plan'], false, 'notes-token']], FakeNotesProvider::$calls);
     }

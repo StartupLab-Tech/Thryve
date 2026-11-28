@@ -295,7 +295,7 @@ class GoogleProviderTest extends TestCase
         $this->assertCount(0, $this->toolCalls(), 'nothing runs before approval');
         $action = PluginAction::where('app_slug', 'google-docs')->sole();
         $this->assertSame('pending', $action->status);
-        $this->assertStringContainsString('document_id "d1"', $action->summary);
+        $this->assertStringContainsString('Update doc: text "Hello", document "d1"', $action->summary);
 
         [, $cookie] = $this->signIn($this->user);
         $this->device($cookie)->postJson("/api/plugin-actions/{$action->id}/approve")->assertOk()->assertJsonPath('data.action.status', 'done')->assertJsonPath('data.action.app', 'Google Docs');
@@ -323,7 +323,7 @@ class GoogleProviderTest extends TestCase
         Http::assertSent(fn (Request $r) => $r->method() === 'PATCH' && str_starts_with($r->url(), 'https://www.googleapis.com/drive/v3/files/f1?') && $r['trashed'] === true
             && $r->hasHeader('Authorization', 'Bearer ya29.first'));
         Http::assertSentCount(1);
-        $this->assertStringContainsString('"trashed":true', $action->fresh()->result_summary);
+        $this->assertStringContainsString('Moved to the trash.', $action->fresh()->result_summary);
     }
 
     public function test_a_file_google_will_not_trash_is_reported_as_a_failed_change_and_a_bad_id_never_leaves_thryve(): void
@@ -779,7 +779,7 @@ class GoogleProviderTest extends TestCase
         $send = $this->sends()->sole();
         $this->assertSame('d1', $send['id']);
         $this->assertTrue($send->hasHeader('Authorization', 'Bearer ya29.mail'));
-        $this->assertStringContainsString('"sent":true', $action->fresh()->result_summary);
+        $this->assertStringContainsString('Sent.', $action->fresh()->result_summary);
         $this->assertDatabaseHas('audit_entries', ['action' => 'plugin.google-gmail.approved']);
     }
 
